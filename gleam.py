@@ -13,7 +13,8 @@ Journal of Computational Science 1 (3): 132–45.
 
 from copy import deepcopy
 import json
-import pandas
+import pandas as pd
+import math
 
 
 def compute_infection_rate(comps, v):
@@ -26,21 +27,21 @@ def infect(comps, v):
     """
 
     inf_rate = compute_infection_rate(comps, v)
-    new_latent = comps['susceptible'] * inf_rate
-    new_symptomatic_no_travel = (comps['latent'] *
+    new_latent = math.ceil(comps['susceptible'] * inf_rate)
+    new_symptomatic_no_travel = math.ceil(comps['latent'] *
+                                    v['p_exit_latent'] *
+                                    (1 - v['p_asymptomatic_infection']) *
+                                    (1 - v['p_travel_permission']))
+    new_symptomatic_travel = math.ceil(comps['latent'] *
                                  v['p_exit_latent'] *
                                  (1 - v['p_asymptomatic_infection']) *
-                                 (1 - v['p_travel_permission']))
-    new_symptomatic_travel = (comps['latent'] *
-                              v['p_exit_latent'] *
-                              (1 - v['p_asymptomatic_infection']) *
-                              v['p_travel_permission'])
-    new_asymptomatic = (comps['latent'] *
-                        v['p_exit_latent'] *
-                        v['p_asymptomatic_infection'])
-    new_snt_recovered = comps['symptomatic_no_travel'] * v['p_recovery']
-    new_st_recovered = comps['symptomatic_travel'] * v['p_recovery']
-    new_asym_recovered = comps['asymptomatic'] * v['p_recovery']
+                                 v['p_travel_permission'])
+    new_asymptomatic = math.ceil(comps['latent'] *
+                           v['p_exit_latent'] *
+                           v['p_asymptomatic_infection'])
+    new_snt_recovered = math.ceil(comps['symptomatic_no_travel'] * v['p_recovery'])
+    new_st_recovered = math.ceil(comps['symptomatic_travel'] * v['p_recovery'])
+    new_asym_recovered = math.ceil(comps['asymptomatic'] * v['p_recovery'])
 
     comps['susceptible'] -= new_latent
     comps['latent'] += new_latent
@@ -86,16 +87,16 @@ def print_graph(comps):
                      int(comps['recovered']))
           )
 
-model_variables = {'p_exit_latent': 0.8,
-                   'transmission_rate': 0.5,
+model_variables = {'p_exit_latent': 0.2,
+                   'transmission_rate': 0.6,
                    'total_pop': 2000,
                    'p_asymptomatic_infection': 0.1,
                    'p_travel_permission': 0.5,
-                   'p_recovery': 0.2}
+                   'p_recovery': 0.1}
 
 compartments = {'susceptible': 1950,
-                'latent': 50,
-                'symptomatic_no_travel': 0,
+                'latent': 0,
+                'symptomatic_no_travel': 10,
                 'symptomatic_travel': 0,
                 'asymptomatic': 0,
                 'recovered': 0}
