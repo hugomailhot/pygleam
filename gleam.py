@@ -14,6 +14,8 @@ Journal of Computational Science 1 (3): 132–45.
 from copy import deepcopy
 import json
 import math
+import pandas as pd
+import matplotlib.pyplot as plt
 
 
 class GleamModel(object):
@@ -41,7 +43,7 @@ class GleamModel(object):
         Updates counts in compartements according to model parameters.
         """
 
-        inf_rate = self.compute_infection_rate(self.comps, self.params)
+        inf_rate = self.compute_infection_rate()
         new_latent = math.ceil(self.comps['susceptible'] * inf_rate)
         new_sym_no_travel = math.ceil(self.comps['latent'] *
                                       self.params['p_exit_latent'] *
@@ -81,7 +83,7 @@ class GleamModel(object):
                 raise Exception("GleamModel copartments must include {}".format(x))
         self.comps = comps
 
-    def set_model_params(self, params):
+    def set_parameters(self, params):
         for x in ['p_exit_latent', 'transmission_rate', 'p_asymptomatic_infection',
                   'p_travel_permission', 'p_recovery']:
             if x not in params.keys():
@@ -89,9 +91,40 @@ class GleamModel(object):
         self.params = params
 
 
+def plot_results(res):
 
+    results = pd.DataFrame(res)
+    results['infectious'] = results[['symptomatic_no_travel',
+                                     'symptomatic_travel',
+                                     'asymptomatic']].sum(axis=1)
 
+    outbreak_peak = results['infectious'].idxmax()
+    outbreak_end = results['infectious'][outbreak_peak:].idxmin()
+    peak_inf_percentage = results['infectious'].max() / 2000.0
 
+    textstr = ('outbreak peak: {}\n'.format(outbreak_peak) +
+               'highest infection %%: {}%%\n'.format(peak_inf_percentage) +
+               'outbreak end: {}'.format(outbreak_end))
+
+    fig, ax = plt.subplots(1)
+
+    ax.plot(results['recovered'], 'g', label='recovered')
+    ax.plot(results['susceptible'], 'b', label='susceptible')
+    ax.plot(results['latent'], 'y', label='latent')
+    ax.plot(results['infectious'], 'r', label='infectious')
+    ax.plot(results['asymptomatic'], '0.3', label='asymptomatic')
+    ax.plot(results['symptomatic_travel'], '0.8', label='symptomatic_travel')
+    ax.plot(results['symptomatic_no_travel'], '0.5', label='symptomatic_no_travel')
+
+    ax.axvline(outbreak_peak, color='r', alpha=0.5, linestyle='--')
+    ax.axvline(outbreak_end, color='g', alpha=0.5, linestyle='--')
+
+    props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
+    ax.text(0.05, 0.95, textstr, transform=ax.transAxes, fontsize=14,
+            verticalalignment='top', bbox=props)
+    plt.legend()
+    plt.xlim(0, outbreak_end + 10)
+    plt.show()
 
 
 if __name__ == '__main__':
@@ -116,6 +149,4 @@ if __name__ == '__main__':
         results.append(gm.get_state())
         # print('total pop: {}'.format(sum(compartments.values())))
         gm.infect()
-    with open('results.json', 'w') as f:
-        json.dump(results, f)
-
+    plot_results(results)
