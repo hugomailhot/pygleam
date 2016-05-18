@@ -22,65 +22,18 @@ import numpy as np
 import networkx as nx
 
 
-class Subpopulation(dict):
-    """
-    Contains SLIR compartments for a given subpopulation.
-    
-    Attributes:
-        id (TYPE): Description
-        infectious_a (TYPE): Description
-        infectious_nt (TYPE): Description
-        infectious_t (TYPE): Description
-        latent (TYPE): Description
-        recovered (TYPE): Description
-        susceptible (TYPE): Description
-    """
-
-    def __init__(self, _id, comps):
-        """Summary
-        
-        Args:
-            _id (TYPE): Description
-            comps (TYPE): Description
-        """
-        self.id = _id
-        self.susceptible = comps['susceptible']
-        self.latent = comps['latent']
-        self.infectious_nt = comps['infectious_nt']
-        self.infectious_t = comps['infectious_t']
-        self.infectious_a = comps['infectious_a']
-        self.recovered = comps['recovered']
-
-    def infectious_count(self):
-        """Summary
-        
-        Returns:
-            TYPE: Description
-        """
-        return self.infectious_nt + self.infectious_t + self.infectious_a
-
-    def total_pop(self):
-        """Summary
-        
-        Returns:
-            TYPE: Description
-        """
-        return sum([self.susceptible, self.latent, self.infectious_nt,
-                    self.infectious_t, self.infectious_a, self.recovered])
-            
-
 class Model(nx.DiGraph):
     """
     Uses nx.DiGraph to implement the network structure, and extends it with methods
     to run the simulations.
-    
+
     Each node is a dict with values for each subpopulation compartment, ie
     susceptible, latent, infectious asymptomatic, infectious allowed to travel,
     infectious travel restricted, and recovered.
-    
+
     Each edge is a commuting route between two nodes. Commuting rates between two
     subpopulations are encoded with the commuting_rate attribute for each edge.
-    
+
     Attributes:
         commuting_return_rate (float): tau parameter - 1 / days spent out
         p_asymptomatic (float): probability of asymptomatic infection
@@ -88,16 +41,16 @@ class Model(nx.DiGraph):
         p_recovery (float): probability of exiting infectious compartments
         p_travel_allowed (float): probability of being allowed to travel while infectious
     """
-    #TODO: revise every exit_rate usage. Ensure 1 is added to it each time.
+    # TODO: revise every exit_rate usage. Ensure 1 is added to it each time.
+
     def __init__(self, subpop_network, params):
         """
         Args:
-            subpop_network (nx.DiGraph): graph representation of the subpopulations and their commuting
-                relationships
+            subpop_network (nx.DiGraph): graph representation of the subpopulations 
+                                         and their commuting relationships
             params (dict): model parameters
-        
+
         Raises:
-            ValueError: Description
             ValueError
             param dict does not contain all required values
         """
@@ -117,10 +70,10 @@ class Model(nx.DiGraph):
 
     def coefficient_of_transmission(self, node_id):
         """Summary
-        
+
         Args:
             node_id (int): id of the nx.DiGraph node
-        
+
         Returns:
             float: Probability extracted from the binomial distribution
         """
@@ -131,10 +84,10 @@ class Model(nx.DiGraph):
         """First extract probabilities for asymptomatic, travelling and non travelling
         infectious among those that leave latent state, then scale by probability
         to exit latent state.
-        
+
         Args:
             node_id (int): id of the nx.DiGraph node
-        
+
         Returns:
             list of floats: Transition probabilies from latent to each infectious
                             compartments.
@@ -150,10 +103,10 @@ class Model(nx.DiGraph):
         """
         For given subpopulation node, compute effective total population,
         taking into account the commuting rates between neighboring subpopulations.
-        
+
         Args:
             node_id (int): id of the nx.DiGraph node
-        
+
         Returns:
             int: Effective population of given node.
         """
@@ -167,7 +120,7 @@ class Model(nx.DiGraph):
         for nb_id in nx.neighbors(self, node_id):
             nb_pop = self.node[nb_id]
             nb_exit_rate = self.get_exit_rate(nb_id)
-            other_pop += (((sum(nb_pop.values()) - nb_pop.infectious_nt) / 
+            other_pop += (((sum(nb_pop.values()) - nb_pop.infectious_nt) /
                            (1 + nb_exit_rate)) *
                           self.edge[nb_id][node_id]['commuting_rate'] / self.return_rate)
 
@@ -179,16 +132,16 @@ class Model(nx.DiGraph):
         1)  the local force of infection;
         2)  the forces of infection in neighboring nodes, scaled respectively
             by the amount of people from local node that commute to these neighbors.
-        
+
         Args:
             node_id (int): id of the nx.DiGraph node
-        
+
         Returns:
             float: Effective force of infection at given node.
         """
         local_exit_rate = self.get_exit_rate(node_id)
         local_foi = self.force_of_infection(node_id) / (1 + local_exit_rate)
-        
+
         nbs_foi = 0
         for nb_id in nx.neighbors(self, node_id):
             commuting_rate_local_to_nb = self.edge[node_id][nb_id]['commuting_rate']
@@ -204,10 +157,10 @@ class Model(nx.DiGraph):
         1)  the number of infectious people in local node;
         2)  the number of infectious people from neighboring node that commute
             to local node.
-        
+
         Args:
             node_id (int): id of the nx.DiGraph node
-        
+
         Returns:
             float: Force of infection at given node.
         """
@@ -217,7 +170,7 @@ class Model(nx.DiGraph):
         local_infectious = (node_pop['infectious_nt'] +
                             (node_pop['infectious_t'] + scaled_asym_pop) /
                             (1 + local_exit_rate))
-        
+
         neighbors_infectious = 0
         for nb_id in nx.neighbors(self, node_id):
             nb_pop = self.node[nb_id]
@@ -236,21 +189,21 @@ class Model(nx.DiGraph):
         """
         Return the commuting exit rate for a given node, as a function of
         commuting and return rates.
-        
+
         Args:
             node_id (int): id of the nx.DiGraph node
         """
-        return (sum([e[2]['commuting_rate'] 
+        return (sum([e[2]['commuting_rate']
                      for e in self.out_edges(node_id, data=True)]) /
                 self.return_rate)
 
     def seasonality(self, hemisphere=None):
         """
         Computes the scalar factor to apply on force of infection.
-        
+
         Args:
             hemisphere (str): either 'north', 'south' or None
-        
+
         Returns:
             float: seasonality value for the given hemisphere, or 1 if no hemisphere
                    value was given
@@ -263,22 +216,22 @@ class Model(nx.DiGraph):
 
     def total_infectious(self, node_pop):
         """Returns the total number of infectious people in a given node population.
-        
+
         Args:
             node_pop (dict): Contains population values for the different compartments
-        
+
         Returns:
             int: Sum of values in infectious compartments
         """
-        return sum([node_pop.infectious_nt, node_pop.infectious_t, 
+        return sum([node_pop.infectious_nt, node_pop.infectious_t,
                     node_pop.infectious_a])
 
     def total_pop(self, node_pop):
         """Returns the total population in a given node population.
-        
+
         Args:
             node_pop (dict): Contains population values for the different compartments
-        
+
         Returns:
             int: Sum of values in all compartments
         """
@@ -287,11 +240,12 @@ class Model(nx.DiGraph):
 
 class CompartmentModel(object):
     """Summary
-    
+
     Attributes:
         comps (TYPE): Description
         params (TYPE): Description
     """
+
     def __init__(self):
         """Summary
         """
@@ -299,7 +253,7 @@ class CompartmentModel(object):
 
     def compute_infection_rate(self):
         """Summary
-        
+
         Returns:
             TYPE: Description
         """
@@ -316,7 +270,7 @@ class CompartmentModel(object):
 
     def infectious_count(self):
         """Summary
-        
+
         Returns:
             TYPE: Description
         """
@@ -364,13 +318,13 @@ class CompartmentModel(object):
 
     def set_populations(self, comps):
         """Summary
-        
+
         Args:
             comps (TYPE): Description
-        
+
         Returns:
             TYPE: Description
-        
+
         Raises:
             Exception: Description
         """
@@ -382,13 +336,13 @@ class CompartmentModel(object):
 
     def set_parameters(self, params):
         """Summary
-        
+
         Args:
             params (TYPE): Description
-        
+
         Returns:
             TYPE: Description
-        
+
         Raises:
             Exception: Description
         """
@@ -406,11 +360,11 @@ if __name__ == '__main__':
                   'p_recovery': 0.05}
 
     populations = {'susceptible': 1950,
-                    'latent': 0,
-                    'symptomatic_no_travel': 10,
-                    'symptomatic_travel': 0,
-                    'asymptomatic': 0,
-                    'recovered': 0}
+                   'latent': 0,
+                   'symptomatic_no_travel': 10,
+                   'symptomatic_travel': 0,
+                   'asymptomatic': 0,
+                   'recovered': 0}
     gm = CompartmentModel()
     gm.set_populations(populations)
     gm.set_parameters(parameters)
