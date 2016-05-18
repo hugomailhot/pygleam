@@ -1,6 +1,3 @@
-# !/usr/bin/env python
-#  encoding: utf-8
-
 """
 Implementationg of the GLEaM model. See reference article:
 
@@ -10,6 +7,9 @@ and Alessandro Vespignani. 2010.
 Mobility Computational Model.”
 Journal of Computational Science 1 (3): 132–45.
 """
+# !/usr/bin/env python
+#  encoding: utf-8
+
 
 from copy import deepcopy
 import math
@@ -18,15 +18,31 @@ import pygal
 from pprint import pprint
 import random
 from utilities import plot_results
+import numpy as np
 import networkx as nx
 
 
-class Subpopulation(object):
+class Subpopulation(dict):
     """
     Contains SLIR compartments for a given subpopulation.
+    
+    Attributes:
+        id (TYPE): Description
+        infectious_a (TYPE): Description
+        infectious_nt (TYPE): Description
+        infectious_t (TYPE): Description
+        latent (TYPE): Description
+        recovered (TYPE): Description
+        susceptible (TYPE): Description
     """
 
     def __init__(self, _id, comps):
+        """Summary
+        
+        Args:
+            _id (TYPE): Description
+            comps (TYPE): Description
+        """
         self.id = _id
         self.susceptible = comps['susceptible']
         self.latent = comps['latent']
@@ -35,134 +51,216 @@ class Subpopulation(object):
         self.infectious_a = comps['infectious_a']
         self.recovered = comps['recovered']
 
-        self.effective_force_of_infection = 0
-        self.effective_population = 0
-
     def infectious_count(self):
+        """Summary
+        
+        Returns:
+            TYPE: Description
+        """
         return self.infectious_nt + self.infectious_t + self.infectious_a
 
     def total_pop(self):
+        """Summary
+        
+        Returns:
+            TYPE: Description
+        """
         return sum([self.susceptible, self.latent, self.infectious_nt,
                     self.infectious_t, self.infectious_a, self.recovered])
+            
 
-
-class SubpopulationNetwork(nx.DiGraph):
+class Model(nx.DiGraph):
     """
-    Network with subpopulation nodes and commuting edges between edges.
-    Responsible for updating the effective properties of subpopulations.
+    Uses nx.DiGraph to implement the network structure, and extends it with methods
+    to run the simulations.
+    
+    Each node is a dict with values for each subpopulation compartment, ie
+    susceptible, latent, infectious asymptomatic, infectious allowed to travel,
+    infectious travel restricted, and recovered.
+    
+    Each edge is a commuting route between two nodes. Commuting rates between two
+    subpopulations are encoded with the commuting_rate attribute for each edge.
+    
+    Attributes:
+        commuting_return_rate (float): tau parameter - 1 / days spent out
+        p_asymptomatic (float): probability of asymptomatic infection
+        p_exit_latent (float): probability of exiting latent compartment
+        p_recovery (float): probability of exiting infectious compartments
+        p_travel_allowed (float): probability of being allowed to travel while infectious
     """
-
-    def __init__(self):
-        self.seasonal_variable = 1  # This is actually a constant, as we don't
-                                    # account for seasonality.
-        return
-
-    def get_all_neighbors(self, node):
+    def __init__(self, subpop_network, params):
         """
-        Returns all neighboring nodes, along with their associated data.
+        DEFINE SUBPOP_NETWORK EXPECTED STRUCTURE
+        
+        Parameters
+        ----------
+        subpop_network : nx.DiGraph
+            graph representation of the subpopulations and their commuting
+            relationships
+        params : dict
+            model parameters
+        
+        Raises
+        ------
+        ValueError
+        param dict does not contain all required values
         """
-        return [(n, self.node[n]['pop']) for n in nx.all_neighbors(self, node)]
+        super(Model, self).__init__(subpop_network)
+        
+        for param in ['p_exit_latent', 'p_recovery','p_asymptomatic',
+                      'p_travel_allowed', 'commuting_return_rate']:
+            if param not in params.keys():
+                raise ValueError("Missing {} parameter".format(param))
 
-    def set_commuting_rates(self, commuting_matrix):
-        self.commuting_rates = commuting_matrix
+        self.p_exit_latent = params['p_exit_latent']
+        self.p_recovery = params['p_recovery']
+        self.p_asymptomatic = params['p_asymptomatic']
+        self.p_travel_allowed = params['p_travel_allowed']
+        self.commuting_return_rate = params['commuting_return_rate']
 
-    def set_commuting_return_rate(self, return_rate):
-        self.return_rate = return_rate
+    def coefficient_of_transmission(self, node_id):
+        """Summary
+        
+        Args:
+            node_id (int): id of the nx.DiGraph node
+        
+        Returns:
+            float: Probability extracted from the binomial distribution
+        """
+        return np.random.binomial(self.node[node_id]['susceptible'],
+                                  self.effective_force_of_infection(node_id))
 
-    def add_subpopulation(self, subpop):
-        self.add_node(subpop.id, pop=subpop)
+    def transitions_from_latent(self, node_id):
+        """
+        First extract probabilities for asymptomatic, travelling and non travelling
+        infectious among those that leave latent state, then scale by probability
+        to exit latent state.
+        
+        Args:
+            node_id (int): id of the nx.DiGraph node
 
-    """
-    To add an adge just use the nx.DiGraph method, like this:
-    a = Subpopulation([params_for_a])
-    b = Subpopulation([params_for_b])
-    sn = SubpopulationNetwork()
-    sn.add_subpopulation(a)
-    sn.add_subpopulation(b)
-    sn.add_edge(a.id, b.id)  <<<<
-    """
+        Returns:
+            list of floats: Transition probabilies from latent to each infectious
+                            compartments.
+        """
+        p_a = self.p_asymptomatic
+        p_t = (1 - self.p_asymptomatic) * self.p_travel_allowed
+        p_nt = (1 - self.p_asymptomatic) * (1 - self.p_travel_allowed)
+        a, t, nt = np.random.multinomial(self.node[node_id]['latent'],
+                                         [p_a, p_t, p_nt], size=1)
+        return [x * self.p_exit_latent for x in [a, t, nt]]
 
-    def get_exit_rate(self, node):
+    def effective_population(self, node_id):
+        """
+        For given subpopulation node, compute effective total population,
+        taking into account the commuting rates between neighboring subpopulations.
+        
+        Args:
+            node_id (int): id of the nx.DiGraph node
+
+        Returns:
+            int: Effective population of given node.
+        """
+        node_pop = self.node[node_id]
+        node_exit_rate = self.get_exit_rate(node_id)
+        local_pop = (node_pop['infectious_nt'] +
+                     (sum(node_pop.values()) - node_pop.['infectious_nt']) /
+                     (1 + node_exit_rate))
+
+        other_pop = 0
+        for nb_id in nx.neighbors(self, node_id):
+            nb_pop = self.node[nb_id]
+            nb_exit_rate = self.get_exit_rate(nb_id)
+            other_pop += (((sum(nb_pop.values()) - nb_pop.infectious_nt) / 
+                           (1 + nb_exit_rate)) *
+                          self.edge[nb_id][node_id]['commuting_rate'] / self.return_rate)
+
+        return local_pop + other_pop
+
+    def effective_force_of_infection(self, node_id):
+        """
+        For given subpopulation node, compute effective for of infection,
+        taking into account the commuting rates between neighboring subpopulations.
+        
+        Args:
+            node_id (int): id of the nx.DiGraph node
+
+        Returns:
+            float: Effective force of infection at given node.
+        """
+        node_exit_rate = self.get_exit_rate(node_id)
+        node_pop = self.node[node_id]
+        
+        foi_from_inside = 
+        foi_from_outside = 
+
+    def get_exit_rate(self, node_id):
         """
         Return the commuting exit rate for a given node, as a function of
         commuting and return rates.
+        
+        Args:
+            node_id (int): id of the nx.DiGraph node
         """
-        return (sum(self.commuting_rates[node]) / self.return_rate)
+        return (sum([e[2]['commuting_rate'] 
+                    for e in self.out_edges(node_id, data=True)]) /
+                self.return_rate)
 
-    def update_effective_populations(self):
+    def seasonality(self, hemisphere):
         """
-        For each subpopulation, update effective total population, taking into
-        account the commuting rates between neighboring subpopulations.
+        Computes the scalar factor to apply on force of infection.
+        
+        Args:
+            hemisphere (str): either 'north' or 'south'
+        
+        Returns:
+            float: seasonality value for the given hemisphere
         """
-        for j, j_pop in self.nodes_iter(data=True):
-
-            j_exit_rate = self.get_exit_rate(j)
-            local_pop = (j_pop.infectious_nt +
-                         (j_pop.total_pop - j_pop.infectious_nt) / (1 + j_exit_rate))
-
-            other_pop = 0
-            for i, i_pop in self.get_all_neighbors(j):
-                i_exit_rate = sum(self.commuting_rates[i]) / self.return_rate
-                other_pop += (
-                              ((i_pop.total_pop - i_pop.infectious_nt) / 
-                                (1 + i_exit_rate)
-                              ) *
-                              self.commuting_rates[i][j] / self.return_rate
-                             )
-
-            j_pop.effective_population = local_pop + other_pop
-
-    def update_effective_forces_of_infection(self):
-        """
-        For each subpopulation, update the value of the effective force of
-        infection parameter. 
-        """
-        for j, j_pop in self.nodes_iter(data=True):
-
-            j_exit_rate = self.get_exit_rate(j)
-            
-
-class Model(object):
-    """
-    Contains model parameters and subpopulations network.
-    Responsible for computing stochastic variables and running infection processes.
-    """
-    def __init__(self, subpop_network=None, p_exit_latent=None, p_recovery=None):
-        if subpop_network is None:
-            raise ValueError("Missing subpop_network argument")
-        if p_exit_latent is None:
-            raise ValueError("Missing p_exit_latent argument")
-        if p_recovery is None:
-            raise ValueError("Missing p_recovery argument")
-
-        self.p_travel_allowed = self.generate_probability_travel_allowed()
-        self.infection_transmission_rate = self.generate_infection_transmission_rate()
-        self.p_asymptomatic_infection = self.generate_probability_asymptomatic()
-        self.p_exit_latent = p_exit_latent
-        self.p_recovery = p_recovery
-
-        self.subpop_network = subpop_network
-
-    # TODO: Implement this
-    def generate_probability_asymptomatic(self):
+        # TODO: implement seasonality computation
         return 1
 
-    # TODO: Implement this
-    def generate_transmission_rate(self):
-        return 
 
+    def total_infectious(self, node_pop):
+        """Returns the total number of infectious people in a given node population.
+        
+        Args:
+            node_pop (dict): Contains population values for the different compartments
+        
+        Returns:
+            int: Sum of values in infectious compartments
+        """
+        return sum([node_pop.infectious_nt, node_pop.infectious_t, 
+                    node_pop.infectious_a])
+    def total_pop(self, node_pop):
+        """Returns the total population in a given node population.
+        
+        Args:
+            node_pop (dict): Contains population values for the different compartments
 
-
-    def set_seasonality_variable(self, value):
-        self.subpop_network.seasonal_variable = value
+        Returns:
+            int: Sum of values in all compartments
+        """
+        return sum(node_pop.values())
 
 
 class CompartmentModel(object):
-
+    """Summary
+    
+    Attributes:
+        comps (TYPE): Description
+        params (TYPE): Description
+    """
     def __init__(self):
+        """Summary
+        """
         pass
 
     def compute_infection_rate(self):
+        """Summary
+        
+        Returns:
+            TYPE: Description
+        """
         return (self.params['transmission_rate'] * self.infectious_count() /
                 sum(self.comps.values()))
 
@@ -175,6 +273,11 @@ class CompartmentModel(object):
         return deepcopy(self.comps)
 
     def infectious_count(self):
+        """Summary
+        
+        Returns:
+            TYPE: Description
+        """
         return (self.comps['symptomatic_travel'] +
                 self.comps['symptomatic_no_travel'] +
                 self.comps['asymptomatic'])
@@ -218,13 +321,35 @@ class CompartmentModel(object):
                                     new_asym_recovered)
 
     def set_populations(self, comps):
+        """Summary
+        
+        Args:
+            comps (TYPE): Description
+        
+        Returns:
+            TYPE: Description
+        
+        Raises:
+            Exception: Description
+        """
         for x in ['susceptible', 'latent', 'symptomatic_no_travel',
                   'symptomatic_travel', 'asymptomatic', 'recovered']:
             if x not in comps.keys():
-                raise Exception("GleamModel copartments must include {}".format(x))
+                raise Exception("GleamModel compartments must include {}".format(x))
         self.comps = comps
 
     def set_parameters(self, params):
+        """Summary
+        
+        Args:
+            params (TYPE): Description
+        
+        Returns:
+            TYPE: Description
+        
+        Raises:
+            Exception: Description
+        """
         for x in ['p_exit_latent', 'transmission_rate', 'p_asymptomatic_infection',
                   'p_travel_permission', 'p_recovery']:
             if x not in params.keys():
