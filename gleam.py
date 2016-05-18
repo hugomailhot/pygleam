@@ -88,27 +88,23 @@ class Model(nx.DiGraph):
         p_recovery (float): probability of exiting infectious compartments
         p_travel_allowed (float): probability of being allowed to travel while infectious
     """
+    #TODO: revise every exit_rate usage. Ensure 1 is added to it each time.
     def __init__(self, subpop_network, params):
         """
-        DEFINE SUBPOP_NETWORK EXPECTED STRUCTURE
+        Args:
+            subpop_network (nx.DiGraph): graph representation of the subpopulations and their commuting
+                relationships
+            params (dict): model parameters
         
-        Parameters
-        ----------
-        subpop_network : nx.DiGraph
-            graph representation of the subpopulations and their commuting
-            relationships
-        params : dict
-            model parameters
-        
-        Raises
-        ------
-        ValueError
-        param dict does not contain all required values
+        Raises:
+            ValueError: Description
+            ValueError
+            param dict does not contain all required values
         """
         super(Model, self).__init__(subpop_network)
-        
-        for param in ['p_exit_latent', 'p_recovery','p_asymptomatic',
-                      'p_travel_allowed', 'commuting_return_rate']:
+
+        for param in ['p_exit_latent', 'p_recovery', 'p_asymptomatic',
+                      'p_travel_allowed', 'commuting_return_rate', 'asym_downscaler']:
             if param not in params.keys():
                 raise ValueError("Missing {} parameter".format(param))
 
@@ -117,6 +113,7 @@ class Model(nx.DiGraph):
         self.p_asymptomatic = params['p_asymptomatic']
         self.p_travel_allowed = params['p_travel_allowed']
         self.commuting_return_rate = params['commuting_return_rate']
+        self.asym_downscaler
 
     def coefficient_of_transmission(self, node_id):
         """Summary
@@ -131,14 +128,13 @@ class Model(nx.DiGraph):
                                   self.effective_force_of_infection(node_id))
 
     def transitions_from_latent(self, node_id):
-        """
-        First extract probabilities for asymptomatic, travelling and non travelling
+        """First extract probabilities for asymptomatic, travelling and non travelling
         infectious among those that leave latent state, then scale by probability
         to exit latent state.
         
         Args:
             node_id (int): id of the nx.DiGraph node
-
+        
         Returns:
             list of floats: Transition probabilies from latent to each infectious
                             compartments.
@@ -157,14 +153,14 @@ class Model(nx.DiGraph):
         
         Args:
             node_id (int): id of the nx.DiGraph node
-
+        
         Returns:
             int: Effective population of given node.
         """
         node_pop = self.node[node_id]
         node_exit_rate = self.get_exit_rate(node_id)
         local_pop = (node_pop['infectious_nt'] +
-                     (sum(node_pop.values()) - node_pop.['infectious_nt']) /
+                     (sum(node_pop.values()) - node_pop['infectious_nt']) /
                      (1 + node_exit_rate))
 
         other_pop = 0
@@ -178,21 +174,63 @@ class Model(nx.DiGraph):
         return local_pop + other_pop
 
     def effective_force_of_infection(self, node_id):
-        """
-        For given subpopulation node, compute effective for of infection,
-        taking into account the commuting rates between neighboring subpopulations.
+        """For given subpopulation node, computes effective for of infection,
+        taking into account two terms:
+        1)  the local force of infection;
+        2)  the forces of infection in neighboring nodes, scaled respectively
+            by the amount of people from local node that commute to these neighbors.
         
         Args:
             node_id (int): id of the nx.DiGraph node
-
+        
         Returns:
             float: Effective force of infection at given node.
         """
-        node_exit_rate = self.get_exit_rate(node_id)
-        node_pop = self.node[node_id]
+        local_exit_rate = self.get_exit_rate(node_id)
+        local_foi = self.force_of_infection(node_id) / (1 + local_exit_rate)
         
-        foi_from_inside = 
-        foi_from_outside = 
+        nbs_foi = 0
+        for nb_id in nx.neighbors(self, node_id):
+            commuting_rate_local_to_nb = self.edge[node_id][nb_id]['commuting_rate']
+            effective_commuting_rate = commuting_rate_local_to_nb / self.return_rate
+            nbs_foi += (self.force_of_infection(nb_id) * effective_commuting_rate /
+                        (1 + local_exit_rate))
+
+        return local_foi + nbs_foi
+
+    def force_of_infection(self, node_id):
+        """For a given node, computes the force of infection, taking into two
+        terms:
+        1)  the number of infectious people in local node;
+        2)  the number of infectious people from neighboring node that commute
+            to local node.
+        
+        Args:
+            node_id (int): id of the nx.DiGraph node
+        
+        Returns:
+            float: Force of infection at given node.
+        """
+        node_pop = self.node[node_id]
+        scaled_asym_pop = self.asym_downscaler * node_pop['infectious_a']
+        local_exit_rate = self.get_exit_rate(node_id)
+        local_infectious = (node_pop['infectious_nt'] +
+                            (node_pop['infectious_t'] + scaled_asym_pop) /
+                            (1 + local_exit_rate))
+        
+        neighbors_infectious = 0
+        for nb_id in nx.neighbors(self, node_id):
+            nb_pop = self.node[nb_id]
+            scaled_asym_pop = self.asym_downscaler * nb_pop['infectious_a']
+            nb_exit_rate = self.get_exit_rate(nb_id)
+            commuting_rate = self.edge[nb_id][node_id]['commuting_rate']
+            commuting_nb_inf = ((nb_pop['infectious_t'] + scaled_asym_pop) /
+                                (1 + nb_exit_rate)) * commuting_rate
+            neighbors_infectious += commuting_nb_inf
+
+        total_infectious = local_infectious + neighbors_infectious
+        return (self.seasonality() / self.effective_population(node_id) *
+                total_infectious)
 
     def get_exit_rate(self, node_id):
         """
@@ -203,22 +241,25 @@ class Model(nx.DiGraph):
             node_id (int): id of the nx.DiGraph node
         """
         return (sum([e[2]['commuting_rate'] 
-                    for e in self.out_edges(node_id, data=True)]) /
+                     for e in self.out_edges(node_id, data=True)]) /
                 self.return_rate)
 
-    def seasonality(self, hemisphere):
+    def seasonality(self, hemisphere=None):
         """
         Computes the scalar factor to apply on force of infection.
         
         Args:
-            hemisphere (str): either 'north' or 'south'
+            hemisphere (str): either 'north', 'south' or None
         
         Returns:
-            float: seasonality value for the given hemisphere
+            float: seasonality value for the given hemisphere, or 1 if no hemisphere
+                   value was given
         """
         # TODO: implement seasonality computation
+        if hemisphere not in ['north', 'south', None]:
+            raise ValueError("hemisphere argument must be in ['north', 'south', None]")
+        # if hemisphere is None:
         return 1
-
 
     def total_infectious(self, node_pop):
         """Returns the total number of infectious people in a given node population.
@@ -231,12 +272,13 @@ class Model(nx.DiGraph):
         """
         return sum([node_pop.infectious_nt, node_pop.infectious_t, 
                     node_pop.infectious_a])
+
     def total_pop(self, node_pop):
         """Returns the total population in a given node population.
         
         Args:
             node_pop (dict): Contains population values for the different compartments
-
+        
         Returns:
             int: Sum of values in all compartments
         """
