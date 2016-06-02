@@ -6,9 +6,9 @@ import pygal
 
 def plot_results(res, svg_filepath):
     results = pd.DataFrame(res)
-    results['infectious'] = results[['symptomatic_no_travel',
-                                     'symptomatic_travel',
-                                     'asymptomatic']].sum(axis=1)
+    results['infectious'] = results[['infectious_nt',
+                                     'infectious_t',
+                                     'infectious_a']].sum(axis=1)
 
     outbreak_peak = results['infectious'].idxmax()
     outbreak_end = results['infectious'][outbreak_peak:].idxmin()
