@@ -382,18 +382,21 @@ if __name__ == '__main__':
                         'commuting_return_rate': 3,
                         'asym_downscaler': 1,
                         'starting_date': starting_date}
-    graph_filepath = '/data/influenza/rwanda/rwa_net_full_cr_pruned.graphml'
+    graph_filepath = 'data/rwa_net.graphml'
+    # Change output filename to [node name]_seed_[number of seeds].jsonp
+    output_file = 'kigali_seed_5.jsonp'
+    
     gleam = Model(nx.read_graphml(graph_filepath), model_parameters)
+    # Kigali is n842
     gleam.seed_infectious('n842', seeds=5)
-    i = 0
-    while any(gleam.node['n842']['compartments'][comp] != 0
-              for comp in ['latent', 'infectious_t', 'infectious_a', 'infectious_nt']):
-        print(i)
-        i += 1
-        gleam.infect()
-        pprint(gleam.node['n842']['compartments'])
+    
+    # UNCOMMENT TO GET TERMINAL UPDATES FOR KIGALI COMPARTMENTS
+    # i = 0
+    # while any(gleam.node['n842']['compartments'][comp] != 0
+    #           for comp in ['latent', 'infectious_t', 'infectious_a', 'infectious_nt']):
+    #     print(i)
+    #     i += 1
+    #     gleam.infect()
+    #     pprint(gleam.node['n842']['compartments'])
 
-    # save_file = '/home/hugo/Projects/networks/network_theory_application_course_project/visualization/svg_test.svg'
-    # plot_results(gleam.node['n530']['history'], save_file)
-    output_file = '/home/hugo/Projects/networks/network_theory_application_class_project/visualization/kigali_seed_5.jsonp'
     gleam.generate_timestamped_geojson_output(output_file)
