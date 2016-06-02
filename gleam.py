@@ -22,6 +22,7 @@ import numpy as np
 import networkx as nx
 from datetime import date, timedelta
 import json
+import cProfile
 
 
 class Model(nx.DiGraph):
@@ -43,7 +44,6 @@ class Model(nx.DiGraph):
         p_recovery (float): probability of exiting infectious compartments
         p_travel_allowed (float): probability of being allowed to travel while infectious
     """
-    # TODO: revise every exit_rate usage. Ensure 1 is added to it each time.
 
     def __init__(self, subpop_network, params):
         """
@@ -57,6 +57,11 @@ class Model(nx.DiGraph):
             ValueError
             param dict does not contain all required values
         """
+        for param in ['p_exit_latent', 'p_recovery', 'p_asymptomatic',
+                      'p_travel_allowed', 'commuting_return_rate', 'asym_downscaler']:
+            if param not in params.keys():
+                raise ValueError("Missing {} parameter".format(param))
+
         super(Model, self).__init__(subpop_network)
 
         self.p_exit_latent = params['p_exit_latent']
@@ -80,10 +85,8 @@ class Model(nx.DiGraph):
             self.node[i]['history'] = [deepcopy(self.node[i]['compartments'])]
             self.node[i]['exit_rate'] = self.get_exit_rate(i)
 
-        for param in ['p_exit_latent', 'p_recovery', 'p_asymptomatic',
-                      'p_travel_allowed', 'commuting_return_rate', 'asym_downscaler']:
-            if param not in params.keys():
-                raise ValueError("Missing {} parameter".format(param))
+        for i in self.nodes_iter():
+            self.node[i]['effective_population'] = self.effective_population(i)
 
     def compute_long_distance_travels(self):
         """
@@ -137,9 +140,9 @@ class Model(nx.DiGraph):
         people that will recover in next time step.
         """
         node_pop = self.node[node_id]['compartments']
-        if ( node_pop['infectious_a'] +
-             node_pop['infectious_t'] +
-             node_pop['infectious_nt'] ) < 1:
+        if (node_pop['infectious_a'] +
+            node_pop['infectious_t'] +
+                node_pop['infectious_nt']) < 1:
             return (0, 0, 0)
         a_recovered = np.random.binomial(node_pop['infectious_a'], self.p_recovery)
         t_recovered = np.random.binomial(node_pop['infectious_t'], self.p_recovery)
@@ -224,7 +227,7 @@ class Model(nx.DiGraph):
 
         neighbors_infectious = 0
         # Only consider neighbors that have an edge inbound to local node, ie predecessors
-        for nb_id in self.predecessors(node_id):  
+        for nb_id in self.predecessors(node_id):
             nb_pop = self.node[nb_id]['compartments']
             scaled_asym_pop = self.asym_downscaler * nb_pop['infectious_a']
             nb_exit_rate = self.node[nb_id]['exit_rate']
@@ -234,7 +237,7 @@ class Model(nx.DiGraph):
             neighbors_infectious += commuting_nb_inf
 
         total_infectious = local_infectious + neighbors_infectious
-        return (self.seasonality() / self.effective_population(node_id) *
+        return (self.seasonality() / self.node[node_id]['effective_population'] *
                 total_infectious)
 
     def get_exit_rate(self, node_id):
@@ -270,7 +273,8 @@ class Model(nx.DiGraph):
             self.node[node_id]['compartments']['infectious_nt'] += new_inf_nt
             self.node[node_id]['compartments']['infectious_nt'] -= new_nt_to_r
             self.node[node_id]['compartments']['recovered'] += total_new_recovered
-            self.node[node_id]['history'].append(deepcopy(self.node[node_id]['compartments']))
+            self.node[node_id]['history'].append(
+                deepcopy(self.node[node_id]['compartments']))
 
     def seasonality(self, hemisphere=None):
         """
@@ -340,28 +344,28 @@ class Model(nx.DiGraph):
             date = self.starting_date
             for _, state in enumerate(self.node[n_id]['history']):
                 point = {
-                          "type": "Feature",
-                          "geometry": {
-                                        "type": "Point",
-                                        "coordinates": [
-                                          self.node[n_id]['lon'],
-                                          self.node[n_id]['lat']
-                                        ]
-                          },
-                          "properties": {
-                            "name": self.node[n_id]['name'],
-                            "population": self.node[n_id]['pop'],
-                            "times": [str(date)],  
-                            "compartments": {
-                                  "susceptible": state['susceptible'],
-                                  "latent": state['latent'],
-                                  "infectious_t": state['infectious_t'],
-                                  "infectious_nt": state['infectious_nt'],
-                                  "infectious_a": state['infectious_a'],
-                                  "recovered":state['recovered']
-                                 }
-                          }
+                    "type": "Feature",
+                    "geometry": {
+                        "type": "Point",
+                        "coordinates": [
+                            self.node[n_id]['lon'],
+                            self.node[n_id]['lat']
+                        ]
+                    },
+                    "properties": {
+                        "name": self.node[n_id]['name'],
+                        "population": self.node[n_id]['pop'],
+                        "times": [str(date)],
+                        "compartments": {
+                            "susceptible": state['susceptible'],
+                            "latent": state['latent'],
+                            "infectious_t": state['infectious_t'],
+                            "infectious_nt": state['infectious_nt'],
+                            "infectious_a": state['infectious_a'],
+                            "recovered": state['recovered']
                         }
+                    }
+                }
                 output.append(point)
                 date += timedelta(days=1)
 
@@ -385,12 +389,11 @@ if __name__ == '__main__':
     graph_filepath = 'data/rwa_net.graphml'
     # Change output filename to [node name]_seed_[number of seeds].jsonp
     output_file = 'kigali_seed_5.jsonp'
-    
+
     gleam = Model(nx.read_graphml(graph_filepath), model_parameters)
     # Kigali is n842
     gleam.seed_infectious('n842', seeds=5)
-    
-    # UNCOMMENT TO GET TERMINAL UPDATES FOR KIGALI COMPARTMENTS
+
     i = 0
     while any(any(gleam.node[node_id]['compartments'][comp] != 0
                   for comp in ['latent', 'infectious_t', 'infectious_a', 'infectious_nt'])
@@ -398,6 +401,7 @@ if __name__ == '__main__':
         print(i)
         i += 1
         gleam.infect()
-        pprint(gleam.node['n842']['compartments'])
+        # UNCOMMENT TO GET TERMINAL UPDATES FOR KIGALI COMPARTMENTS
+        # pprint(gleam.node['n842']['compartments'])
 
     gleam.generate_timestamped_geojson_output(output_file)
