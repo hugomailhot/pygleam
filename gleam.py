@@ -391,12 +391,13 @@ if __name__ == '__main__':
     gleam.seed_infectious('n842', seeds=5)
     
     # UNCOMMENT TO GET TERMINAL UPDATES FOR KIGALI COMPARTMENTS
-    # i = 0
-    # while any(gleam.node['n842']['compartments'][comp] != 0
-    #           for comp in ['latent', 'infectious_t', 'infectious_a', 'infectious_nt']):
-    #     print(i)
-    #     i += 1
-    #     gleam.infect()
-    #     pprint(gleam.node['n842']['compartments'])
+    i = 0
+    while any(any(gleam.node[node_id]['compartments'][comp] != 0
+                  for comp in ['latent', 'infectious_t', 'infectious_a', 'infectious_nt'])
+              for node_id in gleam.nodes_iter()):
+        print(i)
+        i += 1
+        gleam.infect()
+        pprint(gleam.node['n842']['compartments'])
 
     gleam.generate_timestamped_geojson_output(output_file)
