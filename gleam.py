@@ -1,5 +1,7 @@
+# !/usr/bin/env python
+# encoding: utf-8
 """
-Implementation of the GLEaM model. See reference article:
+Implementation of the GLEaM model. See #reference article:
 
 Balcan, Duygu, Bruno Gonçalves, Hao Hu, José J. Ramasco, Vittoria Colizza,
 and Alessandro Vespignani. 2010.
@@ -7,22 +9,14 @@ and Alessandro Vespignani. 2010.
 Mobility Computational Model.”
 Journal of Computational Science 1 (3): 132–45.
 """
-# !/usr/bin/env python
-# encoding: utf-8
 
 
 from copy import deepcopy
 import math
-import pandas as pd
-import pygal
-from pprint import pprint
-import random
-from utilities import plot_results
 import numpy as np
 import networkx as nx
 from datetime import date, timedelta
 import json
-import cProfile
 
 
 class Model(nx.DiGraph):
@@ -48,7 +42,7 @@ class Model(nx.DiGraph):
     def __init__(self, subpop_network, params):
         """
         Args:
-            subpop_network (nx.DiGraph): graph representation of the subpopulations 
+            subpop_network (nx.DiGraph): graph representation of the subpopulations
                                          and their commuting relationships
             params (dict): model parameters
 
@@ -263,18 +257,20 @@ class Model(nx.DiGraph):
             total_new_inf = new_inf_a + new_inf_t + new_inf_nt
             total_new_recovered = new_a_to_r + new_t_to_r + new_nt_to_r
 
-            self.node[node_id]['compartments']['susceptible'] -= new_latent
-            self.node[node_id]['compartments']['latent'] += new_latent
-            self.node[node_id]['compartments']['latent'] -= total_new_inf
-            self.node[node_id]['compartments']['infectious_a'] += new_inf_a
-            self.node[node_id]['compartments']['infectious_a'] -= new_a_to_r
-            self.node[node_id]['compartments']['infectious_t'] += new_inf_t
-            self.node[node_id]['compartments']['infectious_t'] -= new_t_to_r
-            self.node[node_id]['compartments']['infectious_nt'] += new_inf_nt
-            self.node[node_id]['compartments']['infectious_nt'] -= new_nt_to_r
-            self.node[node_id]['compartments']['recovered'] += total_new_recovered
-            self.node[node_id]['history'].append(
-                deepcopy(self.node[node_id]['compartments']))
+            compartments = self.node[node_id]['compartments']
+
+            compartments['susceptible'] -= new_latent
+            compartments['latent'] += new_latent
+            compartments['latent'] -= total_new_inf
+            compartments['infectious_a'] += new_inf_a
+            compartments['infectious_a'] -= new_a_to_r
+            compartments['infectious_t'] += new_inf_t
+            compartments['infectious_t'] -= new_t_to_r
+            compartments['infectious_nt'] += new_inf_nt
+            compartments['infectious_nt'] -= new_nt_to_r
+            compartments['recovered'] += total_new_recovered
+
+            self.node[node_id]['history'].append(deepcopy(compartments))
 
     def seasonality(self, hemisphere=None):
         """
@@ -339,35 +335,45 @@ class Model(nx.DiGraph):
         Args:
             output_file (str): Path of the output file
         """
-        output = []
-        for n_id in self.nodes_iter():
-            date = self.starting_date
-            for _, state in enumerate(self.node[n_id]['history']):
-                point = {
-                    "type": "Feature",
-                    "geometry": {
-                        "type": "Point",
-                        "coordinates": [
-                            self.node[n_id]['lon'],
-                            self.node[n_id]['lat']
-                        ]
-                    },
-                    "properties": {
-                        "name": self.node[n_id]['name'],
-                        "population": self.node[n_id]['pop'],
-                        "times": [str(date)],
-                        "compartments": {
-                            "susceptible": state['susceptible'],
-                            "latent": state['latent'],
-                            "infectious_t": state['infectious_t'],
-                            "infectious_nt": state['infectious_nt'],
-                            "infectious_a": state['infectious_a'],
-                            "recovered": state['recovered']
+
+        def generate_point_object(node, state, date):
+            return {
+                        "type": "Feature",
+                        "geometry": {
+                            "type": "Point",
+                            "coordinates": [
+                                node['lon'],
+                                node['lat']
+                            ]
+                        },
+                        "properties": {
+                            "name": node['name'],
+                            "population": node['pop'],
+                            "times": [str(date)],
+                            "compartments": {
+                                "susceptible": state['susceptible'],
+                                "latent": state['latent'],
+                                "infectious_t": state['infectious_t'],
+                                "infectious_nt": state['infectious_nt'],
+                                "infectious_a": state['infectious_a'],
+                                "recovered": state['recovered']
+                            }
                         }
                     }
-                }
-                output.append(point)
+
+        output = []
+        for n_id in self.nodes_iter():
+            node = self.node[n_id]
+            history = self.node[n_id]['history']
+            date = self.starting_date
+            output.append(generate_point_object(node, history[0], date))
+
+            for i in range(1, len(history) - 1):
                 date += timedelta(days=1)
+                if history[i] == history[i-1]:
+                    output[-1]['properties']['times'].append(str(date))
+                else:
+                    output.append(generate_point_object(node, history[i], date))
 
         output_str = 'nodes = ' + json.dumps(output)
         with open(output_file, 'w') as f:
@@ -388,13 +394,14 @@ if __name__ == '__main__':
                         'starting_date': starting_date}
     graph_filepath = 'data/rwa_net.graphml'
     # Change output filename to [node name]_seed_[number of seeds].jsonp
-    output_file = 'kigali_seed_5.jsonp'
+    output_file = 'output/kigali_seed_5.jsonp'
 
     gleam = Model(nx.read_graphml(graph_filepath), model_parameters)
     # Kigali is n842
     gleam.seed_infectious('n842', seeds=5)
 
     i = 0
+    # while i < 10:
     while any(any(gleam.node[node_id]['compartments'][comp] != 0
                   for comp in ['latent', 'infectious_t', 'infectious_a', 'infectious_nt'])
               for node_id in gleam.nodes_iter()):
