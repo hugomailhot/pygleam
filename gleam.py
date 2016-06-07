@@ -10,14 +10,15 @@ Mobility Computational Model.”
 Journal of Computational Science 1 (3): 132–45.
 """
 
-
+from collections import Counter
 from copy import deepcopy
 import math
 import numpy as np
 import networkx as nx
 from datetime import date, timedelta
 import json
-
+from time import strftime
+from pprint import pprint
 
 class Model(nx.DiGraph):
     """
@@ -66,15 +67,17 @@ class Model(nx.DiGraph):
         self.asym_downscaler = params['asym_downscaler']
         self.starting_date = params['starting_date']
 
+
         for i in self.nodes_iter():
             self.node[i]['pop'] = math.ceil(self.node[i]['pop'])
-            self.node[i]['compartments'] = {'susceptible': math.ceil(self.node[i]['pop']),
+            self.node[i]['compartments'] = Counter(
+                                           {'susceptible': math.ceil(self.node[i]['pop']),
                                             'latent': 0,
                                             'infectious_a': 0,
                                             'infectious_t': 0,
                                             'infectious_nt': 0,
                                             'recovered': 0
-                                            }
+                                            })
             # Store state at beginning.
             self.node[i]['history'] = [deepcopy(self.node[i]['compartments'])]
             self.node[i]['exit_rate'] = self.get_exit_rate(i)
@@ -270,7 +273,7 @@ class Model(nx.DiGraph):
             compartments['infectious_nt'] -= new_nt_to_r
             compartments['recovered'] += total_new_recovered
 
-            self.node[node_id]['history'].append(deepcopy(compartments))
+            self.node[node_id]['history'].append(Counter(compartments))
 
     def seasonality(self, hemisphere=None):
         """
@@ -329,6 +332,45 @@ class Model(nx.DiGraph):
         """
         return sum(node_pop.values())
 
+    def run_n_simulations(self, n, timesteps=200):
+        """Using the same starting conditons, will run the infection process
+        n times, then for each node will place in history the average value over
+        all simulations for each time step.
+
+        Args:
+            n (int): Number of simulations to run
+        """
+        def there_is_infected_nodes(model):
+            return any(any(model.node[node_id]['compartments'][comp] != 0
+                           for comp in ['latent', 'infectious_t',
+                                       'infectious_a', 'infectious_nt'])
+                       for node_id in model.nodes_iter())
+        self.fresh_copy = deepcopy(self)
+        new_compartment = {'susceptible': 0,
+                           'latent': 0,
+                           'infectious_a': 0,
+                           'infectious_t': 0,
+                           'infectious_nt': 0,
+                           'recovered': 0}
+
+        for node_id in self.nodes_iter():
+            self.node[node_id]['history'] = []
+            for i in range(timesteps):
+                self.node[node_id]['history'].append(Counter(new_compartment))
+
+        for i in range(1, n + 1):
+            new_model = deepcopy(self.fresh_copy)
+            print(strftime('%H:%M:%S') + '  Simulation #{}'.format(i))
+            for t in range(timesteps):
+                new_model.infect()
+            # Add compartment values for each node, divided by number of iterations,
+            # to model node histories
+            for node_id in new_model.nodes_iter():
+                history = new_model.node[node_id]['history']
+                for i in range(timesteps):
+                    weighted_comps = Counter({k: v / n for k, v in history[i].items()})
+                    self.node[node_id]['history'][i] += weighted_comps
+
     def generate_timestamped_geojson_output(self, output_file):
         """Generates the file to be read by the Leaflet.js visualization script.
 
@@ -351,12 +393,12 @@ class Model(nx.DiGraph):
                             "population": node['pop'],
                             "times": [str(date)],
                             "compartments": {
-                                "susceptible": state['susceptible'],
-                                "latent": state['latent'],
-                                "infectious_t": state['infectious_t'],
-                                "infectious_nt": state['infectious_nt'],
-                                "infectious_a": state['infectious_a'],
-                                "recovered": state['recovered']
+                                "susceptible": round(state['susceptible']),
+                                "latent": round(state['latent']),
+                                "infectious_t": round(state['infectious_t']),
+                                "infectious_nt": round(state['infectious_nt']),
+                                "infectious_a": round(state['infectious_a']),
+                                "recovered": round(state['recovered'])
                             }
                         }
                     }
@@ -381,9 +423,8 @@ class Model(nx.DiGraph):
 
 
 if __name__ == '__main__':
-    # save_file = '/home/hugo/Projects/networks/network_theory_application_course_project/visualization/svg_test.svg'
-    # print
-    # plot_results(results)
+
+    # Define model parameters
     starting_date = date(2016, 7, 11)
     model_parameters = {'p_exit_latent': 1 / 1.1,
                         'p_recovery': 1 / 2.95,
@@ -392,23 +433,20 @@ if __name__ == '__main__':
                         'commuting_return_rate': 3,
                         'asym_downscaler': 1,
                         'starting_date': starting_date}
+    
     graph_filepath = 'data/rwa_net.graphml'
-    # Change output filename to [node name]_seed_[number of seeds].jsonp
-    output_file = 'output/kigali_seed_5.jsonp'
-
     gleam = Model(nx.read_graphml(graph_filepath), model_parameters)
+
     # Kigali is n842
-    gleam.seed_infectious('n842', seeds=5)
+    starting_node = 'n190'
+    seeds = 5
+    gleam.seed_infectious(starting_node, seeds=seeds)
+    
+    nb_simulations = 20
+    timesteps_per_simul = 200
+    gleam.run_n_simulations(n=nb_simulations, timesteps=timesteps_per_simul)
 
-    i = 0
-    # while i < 10:
-    while any(any(gleam.node[node_id]['compartments'][comp] != 0
-                  for comp in ['latent', 'infectious_t', 'infectious_a', 'infectious_nt'])
-              for node_id in gleam.nodes_iter()):
-        print(i)
-        i += 1
-        gleam.infect()
-        # UNCOMMENT TO GET TERMINAL UPDATES FOR KIGALI COMPARTMENTS
-        # pprint(gleam.node['n842']['compartments'])
-
+    output_file = 'output/node-{}_seed-{}_n-{}.jsonp'.format(starting_node[1:],
+                                                             seeds,
+                                                             nb_simulations)
     gleam.generate_timestamped_geojson_output(output_file)
