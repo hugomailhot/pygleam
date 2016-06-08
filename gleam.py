@@ -18,6 +18,8 @@ import networkx as nx
 from datetime import date, timedelta
 import json
 from time import strftime
+import cProfile
+import pickle
 from pprint import pprint
 
 class Model(nx.DiGraph):
@@ -332,6 +334,17 @@ class Model(nx.DiGraph):
         """
         return sum(node_pop.values())
 
+    def vaccinate_node(self, node_id, p_vaccination, vaccine_effectiveness):
+        """Substract from the node susceptible compartment the effective number
+        of people who are immunized by an immunization campaign.
+
+        Args:
+            p_vaccination (float): % of population that gets the vaccine
+            vaccine_effectiveness (float): probability that the vaccine actually works
+        """
+        p_effective_immunization = p_vaccination * vaccine_effectiveness
+        self.node[node_id]['compartments']['susceptible'] *= p_effective_immunization
+
     def run_n_simulations(self, n, timesteps=200):
         """Using the same starting conditons, will run the infection process
         n times, then for each node will place in history the average value over
@@ -421,7 +434,6 @@ class Model(nx.DiGraph):
         with open(output_file, 'w') as f:
             f.write(output_str)
 
-
 if __name__ == '__main__':
 
     # Define model parameters
@@ -434,17 +446,26 @@ if __name__ == '__main__':
                         'asym_downscaler': 1,
                         'starting_date': starting_date}
     
+    simul_params  = {'starting_node': 'n842',
+                     'seeds': 1,
+                     'p_vaccinated': 0.8,
+                     'p_vaccine_effectiveness': 0.6,
+                     'nb_simulations': 50,
+                     'timesteps_per_simul': 200}
+
     graph_filepath = 'data/rwa_net.graphml'
     gleam = Model(nx.read_graphml(graph_filepath), model_parameters)
 
     # Kigali is n842
-    starting_node = 'n190'
-    seeds = 5
-    gleam.seed_infectious(starting_node, seeds=seeds)
+    gleam.vaccinate_node('n842',
+                         simul_params['p_vaccinated'],
+                         simul_params['p_vaccine_effectiveness'])
     
-    nb_simulations = 20
-    timesteps_per_simul = 200
-    gleam.run_n_simulations(n=nb_simulations, timesteps=timesteps_per_simul)
+    gleam.seed_infectious(simul_params['starting_node'],
+                          seeds=simul_params['seeds'])
+    
+    gleam.run_n_simulations(n=simul_params['nb_simulations'],
+                            timesteps=simul_params['timesteps_per_simul'])
 
     output_file = 'output/node-{}_seed-{}_n-{}.jsonp'.format(starting_node[1:],
                                                              seeds,
