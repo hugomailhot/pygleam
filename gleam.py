@@ -188,19 +188,19 @@ class GleamModel(nx.DiGraph):
             float: Effective force of infection at given node.
         """
         local_exit_rate = self.node[node_id]['exit_rate']
-        local_foi = self.force_of_infection(node_id) / (1 + local_exit_rate)
+        local_foi = self.node[node_id]['foi'] / (1 + local_exit_rate)
 
         nbs_foi = 0
         # Only consider neighbors that can be attained from local node, ie successors
         for nb_id in self.successors(node_id):
             commuting_rate_local_to_nb = self.edge[node_id][nb_id]['commuting_rate']
             effective_commuting_rate = commuting_rate_local_to_nb / self.return_rate
-            nbs_foi += (self.force_of_infection(nb_id) * effective_commuting_rate /
+            nbs_foi += (self.node[nb_id]['foi'] * effective_commuting_rate /
                         (1 + local_exit_rate))
 
         return local_foi + nbs_foi
 
-    def force_of_infection(self, node_id):
+    def update_force_of_infection(self, node_id):
         """For a given node, computes the force of infection, taking into two
 
         terms:
@@ -233,8 +233,10 @@ class GleamModel(nx.DiGraph):
             neighbors_infectious += commuting_nb_inf
 
         total_infectious = local_infectious + neighbors_infectious
-        return (self.seasonality() / self.effective_population(node_id) *
-                total_infectious)
+
+        self.node[node_id]['foi'] = (self.seasonality() / 
+                                     self.effective_population(node_id) *
+                                     total_infectious)
 
     def get_exit_rate(self, node_id):
         """
@@ -252,6 +254,10 @@ class GleamModel(nx.DiGraph):
         """
         Runs one step of the infection process on every node in the network.
         """
+        # The FOI update has to be done separately before, as you need to update
+        # a node's neighbors too to be able to process it in the subsequent steps.
+        for node_id in self.nodes_iter():
+            self.update_force_of_infection(node_id)
         for node_id in self.nodes_iter():
             new_latent = self.draw_new_latent_count(node_id)
             new_inf_a, new_inf_t, new_inf_nt = self.draw_new_infectious_counts(node_id)
@@ -342,7 +348,7 @@ class GleamModel(nx.DiGraph):
         p_effective_immunization = p_vaccination * vaccine_effectiveness
         self.node[node_id]['compartments']['susceptible'] *= p_effective_immunization
 
-    def average_over_n_simulations(self, n, timesteps=200):
+    def average_over_n_simulations(self, n, max_timesteps=200):
         """Using the same starting conditons, will run the infection process
         n times, then for each node will place in history the average value over
         all simulations for each time step.
@@ -355,31 +361,37 @@ class GleamModel(nx.DiGraph):
                            for comp in ['latent', 'infectious_t',
                                        'infectious_a', 'infectious_nt'])
                        for node_id in model.nodes_iter())
-        self.fresh_copy = deepcopy(self)
         new_compartment = {'susceptible': 0,
                            'latent': 0,
                            'infectious_a': 0,
                            'infectious_t': 0,
                            'infectious_nt': 0,
                            'recovered': 0}
-
         for node_id in self.nodes_iter():
             self.node[node_id]['history'] = []
-            for i in range(timesteps):
+            for i in range(max_timesteps):
                 self.node[node_id]['history'].append(Counter(new_compartment))
 
+        fresh_copy = deepcopy(self)
+        steps_data = []
         for i in range(1, n + 1):
-            new_model = deepcopy(self.fresh_copy)
+            steps = 0
+            new_model = deepcopy(fresh_copy)
             print(strftime('%H:%M:%S') + '  Simulation #{}'.format(i))
-            for t in range(timesteps):
+            # for t in range(timesteps):
+            while there_is_infected_nodes(new_model):
                 new_model.infect()
+                steps += 1
+            steps_data.append(steps)
             # Add compartment values for each node, divided by number of iterations,
             # to model node histories
             for node_id in new_model.nodes_iter():
                 history = new_model.node[node_id]['history']
-                for i in range(timesteps):
+                for i in range(min(len(history), max_timesteps)):
                     weighted_comps = Counter({k: v / n for k, v in history[i].items()})
                     self.node[node_id]['history'][i] += weighted_comps
+        print(steps_data)
+
 
     def generate_timestamped_geojson_output(self, output_file):
         """Generates the file to be read by the Leaflet.js visualization script.
@@ -446,25 +458,25 @@ if __name__ == '__main__':
     
     simul_params  = {'starting_node': 'n842',
                      'seeds': 1,
-                     'nb_simulations': 5,
-                     'timesteps_per_simul': 20}
+                     'nb_simulations': 100,
+                     'timesteps_per_simul': 200}
 
     graph_filepath = 'data/rwa_net.graphml'
     gleam = GleamModel(nx.read_graphml(graph_filepath), model_parameters)
 
     # Kigali is n842
     gleam.vaccinate_node(node_id='n842',
-                         p_vaccination=0.8,
+                         p_vaccination=0.0,
                          vaccine_effectiveness=0.6)
     
     gleam.seed_infectious(simul_params['starting_node'],
                           seeds=simul_params['seeds'])
     
     gleam.average_over_n_simulations(n=simul_params['nb_simulations'],
-                            timesteps=simul_params['timesteps_per_simul'])
+                            max_timesteps=simul_params['timesteps_per_simul'])
 
-    output_file = 'output/node-{}_seed-{}_n-{}.jsonp'.format(starting_node[1:],
-                                                             seeds,
-                                                             nb_simulations)
+    output_file = 'output/node-{}_seed-{}_n-{}.jsonp'.format(simul_params['starting_node'][1:],
+                                                             simul_params['seeds'],
+                                                             simul_params['nb_simulations'])
     gleam.generate_timestamped_geojson_output(output_file)
 
