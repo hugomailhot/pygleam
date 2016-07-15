@@ -22,7 +22,7 @@ import cProfile
 import pickle
 from pprint import pprint
 
-class Model(nx.DiGraph):
+class GleamModel(nx.DiGraph):
     """
     Uses nx.DiGraph to implement the network structure, and extends it with methods
     to run the simulations.
@@ -42,6 +42,8 @@ class Model(nx.DiGraph):
         p_travel_allowed (float): probability of being allowed to travel while infectious
     """
 
+    # TODO: recalculate effective population at each step
+
     def __init__(self, subpop_network, params):
         """
         Args:
@@ -59,7 +61,7 @@ class Model(nx.DiGraph):
             if param not in params.keys():
                 raise ValueError("Missing {} parameter".format(param))
 
-        super(Model, self).__init__(subpop_network)
+        super(GleamModel, self).__init__(subpop_network)
 
         self.p_exit_latent = params['p_exit_latent']
         self.p_recovery = params['p_recovery']
@@ -73,7 +75,7 @@ class Model(nx.DiGraph):
         for i in self.nodes_iter():
             self.node[i]['pop'] = math.ceil(self.node[i]['pop'])
             self.node[i]['compartments'] = Counter(
-                                           {'susceptible': math.ceil(self.node[i]['pop']),
+                                           {'susceptible': self.node[i]['pop'],
                                             'latent': 0,
                                             'infectious_a': 0,
                                             'infectious_t': 0,
@@ -171,7 +173,7 @@ class Model(nx.DiGraph):
             nb_pop = self.node[nb_id]['compartments']
             nb_exit_rate = self.node[nb_id]['exit_rate']
             other_pop += (((sum(nb_pop.values()) - node_pop['infectious_nt']) /
-                           (1 + nb_exit_rate)) *
+                           (1 + nb_exit_rate)) *  # TODO: justify why we're not instead multiplying by (1-nb_exit_rate) ??
                           self.edge[nb_id][node_id]['commuting_rate'] / self.return_rate)
 
         return local_pop + other_pop
@@ -444,22 +446,21 @@ if __name__ == '__main__':
                         'p_travel_allowed': 0.3,
                         'commuting_return_rate': 3,
                         'asym_downscaler': 1,
+                        'R0':1.5,
                         'starting_date': starting_date}
     
     simul_params  = {'starting_node': 'n842',
                      'seeds': 1,
-                     'p_vaccinated': 0.8,
-                     'p_vaccine_effectiveness': 0.6,
                      'nb_simulations': 50,
                      'timesteps_per_simul': 200}
 
     graph_filepath = 'data/rwa_net.graphml'
-    gleam = Model(nx.read_graphml(graph_filepath), model_parameters)
+    gleam = GleamModel(nx.read_graphml(graph_filepath), model_parameters)
 
     # Kigali is n842
-    gleam.vaccinate_node('n842',
-                         simul_params['p_vaccinated'],
-                         simul_params['p_vaccine_effectiveness'])
+    gleam.vaccinate_node(node_id='n842',
+                         p_vaccinated=0.8,
+                         vaccine_effectiveness=0.6)
     
     gleam.seed_infectious(simul_params['starting_node'],
                           seeds=simul_params['seeds'])
@@ -471,3 +472,4 @@ if __name__ == '__main__':
                                                              seeds,
                                                              nb_simulations)
     gleam.generate_timestamped_geojson_output(output_file)
+
