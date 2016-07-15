@@ -42,8 +42,6 @@ class GleamModel(nx.DiGraph):
         p_travel_allowed (float): probability of being allowed to travel while infectious
     """
 
-    # TODO: recalculate effective population at each step
-
     def __init__(self, subpop_network, params):
         """
         Args:
@@ -85,9 +83,6 @@ class GleamModel(nx.DiGraph):
             # Store state at beginning.
             self.node[i]['history'] = [deepcopy(self.node[i]['compartments'])]
             self.node[i]['exit_rate'] = self.get_exit_rate(i)
-
-        for i in self.nodes_iter():
-            self.node[i]['effective_population'] = self.effective_population(i)
 
     def compute_long_distance_travels(self):
         """
@@ -238,7 +233,7 @@ class GleamModel(nx.DiGraph):
             neighbors_infectious += commuting_nb_inf
 
         total_infectious = local_infectious + neighbors_infectious
-        return (self.seasonality() / self.node[node_id]['effective_population'] *
+        return (self.seasonality() / self.effective_population(node_id) *
                 total_infectious)
 
     def get_exit_rate(self, node_id):
@@ -347,7 +342,7 @@ class GleamModel(nx.DiGraph):
         p_effective_immunization = p_vaccination * vaccine_effectiveness
         self.node[node_id]['compartments']['susceptible'] *= p_effective_immunization
 
-    def run_n_simulations(self, n, timesteps=200):
+    def average_over_n_simulations(self, n, timesteps=200):
         """Using the same starting conditons, will run the infection process
         n times, then for each node will place in history the average value over
         all simulations for each time step.
@@ -451,21 +446,21 @@ if __name__ == '__main__':
     
     simul_params  = {'starting_node': 'n842',
                      'seeds': 1,
-                     'nb_simulations': 50,
-                     'timesteps_per_simul': 200}
+                     'nb_simulations': 5,
+                     'timesteps_per_simul': 20}
 
     graph_filepath = 'data/rwa_net.graphml'
     gleam = GleamModel(nx.read_graphml(graph_filepath), model_parameters)
 
     # Kigali is n842
     gleam.vaccinate_node(node_id='n842',
-                         p_vaccinated=0.8,
+                         p_vaccination=0.8,
                          vaccine_effectiveness=0.6)
     
     gleam.seed_infectious(simul_params['starting_node'],
                           seeds=simul_params['seeds'])
     
-    gleam.run_n_simulations(n=simul_params['nb_simulations'],
+    gleam.average_over_n_simulations(n=simul_params['nb_simulations'],
                             timesteps=simul_params['timesteps_per_simul'])
 
     output_file = 'output/node-{}_seed-{}_n-{}.jsonp'.format(starting_node[1:],
