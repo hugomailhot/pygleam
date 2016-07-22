@@ -146,7 +146,7 @@ def compute_commuting_flow(input_file, output_file):
             pop_j = g.node[j]['pop']
             other_neighbors = set(neighbors) - set(j)
             radius = g.edge[i][j]['Total_Length']
-            others_in_radius = [nb for nb in other_neighbors 
+            others_in_radius = [nb for nb in other_neighbors
                                 if g.edge[i][nb]['Total_Length'] < radius]
             pop_in_radius = sum([g.node[o]['pop'] for o in others_in_radius])
             g.edge[i][j]['commuting_rate'] = (
@@ -157,7 +157,6 @@ def compute_commuting_flow(input_file, output_file):
                                               )
                                              )
 
-
     nx.write_graphml(g, output_file)
 
 
@@ -167,20 +166,20 @@ def generate_geojson_base_nodes(input_file, output_file):
     generate a geojson file to allow mapping of the nodes on a Leaflet map.
     """
     def generate_point_object(node):
-        return  {
-                    "type": "Feature",
-                    "geometry": {
-                        "type": "Point",
-                        "coordinates": [
-                            node['lon'],
-                            node['lat']
-                        ]
-                    },
-                    "properties": {
-                        "name": node['name'],
-                        "population": node['pop']
-                    }
-                }
+        return {
+                   "type": "Feature",
+                   "geometry": {
+                       "type": "Point",
+                       "coordinates": [
+                           node['lon'],
+                           node['lat']
+                       ]
+                   },
+                   "properties": {
+                       "name": node['name'],
+                       "population": node['pop']
+                   }
+               }
 
     g = nx.read_graphml(input_file)
     output = [generate_point_object(node[1]) for node in g.nodes_iter(data=True)]
@@ -231,7 +230,7 @@ if __name__ == '__main__':
     # input_file = '/data/influenza/rwanda/rwa_net_full.graphml'
     # output_file = '/data/influenza/rwanda/rwa_net_full_cr.graphml'
     # compute_commuting_flow(input_file, output_file)
-    
+
     # input_file = '/data/influenza/rwanda/rwa_net_full_cr.graphml'
     # output_file = '/data/influenza/rwanda/rwa_net_full_cr_pruned.graphml'
     # prune_edges_with_min_cr(input_file, output_file, 0.001)
