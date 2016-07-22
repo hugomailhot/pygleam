@@ -80,6 +80,16 @@ class GleamModel(nx.DiGraph):
                                             'infectious_nt': 0,
                                             'recovered': 0
                                             })
+            # fresh_compartments is useful to reset the model in 
+            # average_over_n_simulations()
+            self.node[i]['fresh_compartments'] = Counter(
+                                                 {'susceptible': self.node[i]['pop'],
+                                                  'latent': 0,
+                                                  'infectious_a': 0,
+                                                  'infectious_t': 0,
+                                                  'infectious_nt': 0,
+                                                  'recovered': 0
+                                                  })
             # Store state at beginning.
             self.node[i]['history'] = [deepcopy(self.node[i]['compartments'])]
             self.node[i]['exit_rate'] = self.get_exit_rate(i)
@@ -348,7 +358,7 @@ class GleamModel(nx.DiGraph):
         p_effective_immunization = p_vaccination * vaccine_effectiveness
         self.node[node_id]['compartments']['susceptible'] *= p_effective_immunization
 
-    def average_over_n_simulations(self, n, max_timesteps=200):
+    def average_over_n_simulations(self, params):
         """Using the same starting conditons, will run the infection process
         n times, then for each node will place in history the average value over
         all simulations for each time step.
@@ -361,6 +371,12 @@ class GleamModel(nx.DiGraph):
                            for comp in ['latent', 'infectious_t',
                                        'infectious_a', 'infectious_nt'])
                        for node_id in model.nodes_iter())
+
+        def reset_model(model):
+            for i in model.nodes_iter():
+                model.node[i]['compartments'] = model.node[i]['fresh_compartments']
+                model.node[i]['history'] = [deepcopy(model.node[i]['compartments'])]
+
         new_compartment = {'susceptible': 0,
                            'latent': 0,
                            'infectious_a': 0,
@@ -369,17 +385,18 @@ class GleamModel(nx.DiGraph):
                            'recovered': 0}
         for node_id in self.nodes_iter():
             self.node[node_id]['history'] = []
-            for i in range(max_timesteps):
+            for i in range(params['max_timesteps']):
                 self.node[node_id]['history'].append(Counter(new_compartment))
 
-        fresh_copy = deepcopy(self)
+        new_model = deepcopy(self)
         steps_data = []
-        for i in range(1, n + 1):
+        for i in range(1, params['nb_simulations'] + 1):
+            reset_model(new_model)
+            new_model.seed_infectious(params['starting_node'], params['seeds'])
             steps = 0
-            new_model = deepcopy(fresh_copy)
             print(strftime('%H:%M:%S') + '  Simulation #{}'.format(i))
-            # for t in range(timesteps):
-            while there_is_infected_nodes(new_model):
+            while (there_is_infected_nodes(new_model) 
+                    and steps <= params['max_timesteps']):
                 new_model.infect()
                 steps += 1
             steps_data.append(steps)
@@ -387,8 +404,9 @@ class GleamModel(nx.DiGraph):
             # to model node histories
             for node_id in new_model.nodes_iter():
                 history = new_model.node[node_id]['history']
-                for i in range(min(len(history), max_timesteps)):
-                    weighted_comps = Counter({k: v / n for k, v in history[i].items()})
+                for i in range(min(len(history), params['max_timesteps'])):
+                    weighted_comps = Counter({k: v / params['nb_simulations'] 
+                                             for k, v in history[i].items()})
                     self.node[node_id]['history'][i] += weighted_comps
         print(steps_data)
 
@@ -444,6 +462,7 @@ class GleamModel(nx.DiGraph):
             f.write(output_str)
 
 if __name__ == '__main__':
+    np.random.seed(0)
 
     # Define model parameters
     starting_date = date(2016, 7, 11)
@@ -457,9 +476,9 @@ if __name__ == '__main__':
                         'starting_date': starting_date}
     
     simul_params  = {'starting_node': 'n842',
-                     'seeds': 1,
-                     'nb_simulations': 100,
-                     'timesteps_per_simul': 200}
+                     'seeds': 5,
+                     'nb_simulations': 1000,
+                     'max_timesteps': 300}
 
     graph_filepath = 'data/rwa_net.graphml'
     gleam = GleamModel(nx.read_graphml(graph_filepath), model_parameters)
@@ -469,11 +488,10 @@ if __name__ == '__main__':
                          p_vaccination=0.0,
                          vaccine_effectiveness=0.6)
     
-    gleam.seed_infectious(simul_params['starting_node'],
-                          seeds=simul_params['seeds'])
+    # gleam.seed_infectious(simul_params['starting_node'],
+    #                       seeds=simul_params['seeds'])
     
-    gleam.average_over_n_simulations(n=simul_params['nb_simulations'],
-                            max_timesteps=simul_params['timesteps_per_simul'])
+    gleam.average_over_n_simulations(simul_params)
 
     output_file = 'output/node-{}_seed-{}_n-{}.jsonp'.format(simul_params['starting_node'][1:],
                                                              simul_params['seeds'],
