@@ -2,56 +2,56 @@
 #  encoding: utf-8
 
 import pandas as pd
-import pygal
+# import pygal
 import networkx as nx
 import json
-import folium
-from folium import plugins
+# import folium
+# from folium import plugins
 
-def plot_results(res, svg_filepath):
-    results = pd.DataFrame(res)
-    results['infectious'] = results[['infectious_nt',
-                                     'infectious_t',
-                                     'infectious_a']].sum(axis=1)
+# def plot_results(res, svg_filepath):
+#     results = pd.DataFrame(res)
+#     results['infectious'] = results[['infectious_nt',
+#                                      'infectious_t',
+#                                      'infectious_a']].sum(axis=1)
 
-    outbreak_peak = results['infectious'].idxmax()
-    outbreak_end = results['infectious'][outbreak_peak:].idxmin()
-    peak_inf_percentage = results['infectious'].max() / 2000.0
+#     outbreak_peak = results['infectious'].idxmax()
+#     outbreak_end = results['infectious'][outbreak_peak:].idxmin()
+#     peak_inf_percentage = results['infectious'].max() / 2000.0
 
-    textstr = ('outbreak peak: {}\n'.format(outbreak_peak) +
-               'highest infection %%: {}%%\n'.format(peak_inf_percentage) +
-               'outbreak end: {}'.format(outbreak_end))
+#     textstr = ('outbreak peak: {}\n'.format(outbreak_peak) +
+#                'highest infection %%: {}%%\n'.format(peak_inf_percentage) +
+#                'outbreak end: {}'.format(outbreak_end))
 
-    results = results[:outbreak_end]
+#     results = results[:outbreak_end]
 
-    custom_style = pygal.style.Style(colors=["#fdae61", "#d7191c", "#a6d96a", "#1a9641"])
-    custom_style = pygal.style.DarkStyle
-    custom_style.colors = ["#feed6c", "#bf4646", "#56c2d6", "#516083"]
-    line_chart = pygal.StackedLine(dots_size=1,
-                                   fill=True,
-                                   show_dots=False,
-                                   show_y_guides=False,
-                                   legend_at_bottom=True,
-                                   legend_at_bottom_columns=2,
-                                   x_labels_major_every=5,
-                                   show_minor_x_labels=False,
-                                   truncate_label=-1,
-                                   style=custom_style)
+#     custom_style = pygal.style.Style(colors=["#fdae61", "#d7191c", "#a6d96a", "#1a9641"])
+#     custom_style = pygal.style.DarkStyle
+#     custom_style.colors = ["#feed6c", "#bf4646", "#56c2d6", "#516083"]
+#     line_chart = pygal.StackedLine(dots_size=1,
+#                                    fill=True,
+#                                    show_dots=False,
+#                                    show_y_guides=False,
+#                                    legend_at_bottom=True,
+#                                    legend_at_bottom_columns=2,
+#                                    x_labels_major_every=5,
+#                                    show_minor_x_labels=False,
+#                                    truncate_label=-1,
+#                                    style=custom_style)
 
-    print(outbreak_end)
-    line_chart.title = 'Simulation results - Compartment model'
-    line_chart.x_labels = [str(x) for x in range(outbreak_end)]
-    line_chart.add('latent', results['latent'])
-    line_chart.add('infectious', results['infectious'])
-    line_chart.add('susceptible', [{'value': x, 'color': 'rgba(51, 153, 255, 100)'}
-                                   for x in results['susceptible']])
-    # line_chart.add('infectious_symptomatic_travel', results['symptomatic_travel'],
-                   # color='rgba(230, 0, 0, 70)')
-    # line_chart.add('infectious_symptomatic_no_travel', results['symptomatic_no_travel'])
-    line_chart.add('recovered', results['recovered'])
-    # line_chart.add('infectious_asymptomatic', results['asymptomatic'])
-    line_chart.render_in_browser()
-    line_chart.render_to_file(svg_filepath)
+#     print(outbreak_end)
+#     line_chart.title = 'Simulation results - Compartment model'
+#     line_chart.x_labels = [str(x) for x in range(outbreak_end)]
+#     line_chart.add('latent', results['latent'])
+#     line_chart.add('infectious', results['infectious'])
+#     line_chart.add('susceptible', [{'value': x, 'color': 'rgba(51, 153, 255, 100)'}
+#                                    for x in results['susceptible']])
+#     # line_chart.add('infectious_symptomatic_travel', results['symptomatic_travel'],
+#                    # color='rgba(230, 0, 0, 70)')
+#     # line_chart.add('infectious_symptomatic_no_travel', results['symptomatic_no_travel'])
+#     line_chart.add('recovered', results['recovered'])
+#     # line_chart.add('infectious_asymptomatic', results['asymptomatic'])
+#     line_chart.render_in_browser()
+#     line_chart.render_to_file(svg_filepath)
 
 
 def graphml_to_geojson(graphml_input_filepath, geojson_output_filepath):
@@ -91,11 +91,15 @@ def prune_edges_with_min_cr(input_filepath, output_filepath, min_cr):
     """
     Removes from graph the edges that have a commuting rate under min_cr.
     """
+    print('loading graph')
     graph = nx.read_graphml(input_filepath)
+    print('Identifying bad edges')
     bad_edges = [x for x in graph.edges_iter(data=True)
                  if x[2]['commuting_rate'] < min_cr]
 
+    print('removing bad edges')
     graph.remove_edges_from(bad_edges)
+    print('writing results to disk')
     nx.write_graphml(graph, output_filepath)
 
 
@@ -117,13 +121,13 @@ def format_graph(input_graph_filepath, output_graph_filepath):
     nx.write_gpickle(g, output_graph_filepath)
 
 
-def test_folium():
-    geo_data = {"type": "FeatureCollection",
-                "features": []}
-    m = folium.Map([0,3], zoom_start=2)
-    tgj = plugins.TimestampedGeoJson(geo_data)
-    m.add_children(tgj)
-    m.save('folium_test.html')
+# def test_folium():
+#     geo_data = {"type": "FeatureCollection",
+#                 "features": []}
+#     m = folium.Map([0,3], zoom_start=2)
+#     tgj = plugins.TimestampedGeoJson(geo_data)
+#     m.add_children(tgj)
+#     m.save('folium_test.html')
 
 
 def compute_commuting_flow(input_file, output_file):
@@ -135,16 +139,20 @@ def compute_commuting_flow(input_file, output_file):
     Nature 484 (7392): 96–100.
     """
 
+
     g = nx.read_graphml(input_file)
 
     commuter_ratio = 0.11
 
+    counter = 0
     for i in g.nodes_iter():
+        print('computing for node {}'.format(counter))
+        counter += 1
         pop_i = g.node[i]['pop']
-        neighbors = nx.neighbors(g, i)
+        neighbors = set(nx.neighbors(g, i))
         for j in neighbors:
             pop_j = g.node[j]['pop']
-            other_neighbors = set(neighbors) - set(j)
+            other_neighbors = neighbors - set(j)
             radius = g.edge[i][j]['Total_Length']
             others_in_radius = [nb for nb in other_neighbors
                                 if g.edge[i][nb]['Total_Length'] < radius]
@@ -156,7 +164,7 @@ def compute_commuting_flow(input_file, output_file):
                                                 (pop_i + pop_j + pop_in_radius)
                                               )
                                              )
-
+    print('writing to file')
     nx.write_graphml(g, output_file)
 
 
@@ -227,14 +235,14 @@ if __name__ == '__main__':
     # G = nx.read_graphml('/data/influenza/rwanda/rwa_net.graphml')
     # prune_edges_with_max_distance(G, 50000)
     # nx.write_graphml(G, '/data/influenza/rwanda/rwa_net_pruned.graphml')
-    # input_file = '/data/influenza/rwanda/rwa_net_full.graphml'
-    # output_file = '/data/influenza/rwanda/rwa_net_full_cr.graphml'
+    # input_file = '/home/hugo/data/pygleam/2016-07-15_rwa-net.graphml'
+    # output_file = '/home/hugo/data/pygleam/rwa-net_cr.graphml'
     # compute_commuting_flow(input_file, output_file)
 
-    # input_file = '/data/influenza/rwanda/rwa_net_full_cr.graphml'
-    # output_file = '/data/influenza/rwanda/rwa_net_full_cr_pruned.graphml'
-    # prune_edges_with_min_cr(input_file, output_file, 0.001)
+    input_file = '/home/hugo/data/pygleam/rwa-net_cr.graphml'
+    output_file = '/home/hugo/data/pygleam/rwa-net_cr_pruned.graphml'
+    prune_edges_with_min_cr(input_file, output_file, 0.001)
 
-    input_file = '/home/hugo/Projects/gleam/data/rwa_net.graphml'
-    output_file = '/home/hugo/Projects/gleam/data/base_nodes.jsonp'
-    generate_geojson_base_nodes(input_file, output_file)
+    # input_file = '/home/hugo/Projects/gleam/data/rwa_net.graphml'
+    # output_file = '/home/hugo/Projects/gleam/data/base_nodes.jsonp'
+    # generate_geojson_base_nodes(input_file, output_file)
