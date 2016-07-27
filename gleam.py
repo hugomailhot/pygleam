@@ -21,6 +21,7 @@ from time import strftime
 import cProfile
 import pickle
 from pprint import pprint
+import random
 
 class GleamModel(nx.DiGraph):
     """
@@ -54,7 +55,7 @@ class GleamModel(nx.DiGraph):
             ValueError
             param dict does not contain all required values
         """
-        for param in ['p_exit_latent', 'p_recovery', 'p_asymptomatic',
+        for param in ['p_exit_latent', 'p_recovery', 'p_asymptomatic', 'R0',
                       'p_travel_allowed', 'commuting_return_rate', 'asym_downscaler']:
             if param not in params.keys():
                 raise ValueError("Missing {} parameter".format(param))
@@ -68,6 +69,7 @@ class GleamModel(nx.DiGraph):
         self.return_rate = params['commuting_return_rate']
         self.asym_downscaler = params['asym_downscaler']
         self.starting_date = params['starting_date']
+        self.R0 = params['R0']
 
 
         for i in self.nodes_iter():
@@ -115,6 +117,9 @@ class GleamModel(nx.DiGraph):
         """
         if self.node[node_id]['compartments']['susceptible'] < 1:
             return 0
+        if node_id == 'n890':
+            print(self.node[node_id]['compartments']['susceptible'],
+                                      self.effective_force_of_infection(node_id))
         return np.random.binomial(self.node[node_id]['compartments']['susceptible'],
                                   self.effective_force_of_infection(node_id))
 
@@ -137,7 +142,7 @@ class GleamModel(nx.DiGraph):
         p_t = (1 - self.p_asymptomatic) * self.p_travel_allowed
         p_nt = (1 - self.p_asymptomatic) * (1 - self.p_travel_allowed)
         a, t, nt = np.random.multinomial(self.node[node_id]['compartments']['latent'],
-                                         [p_a, p_t, p_nt], size=1)[0]
+                                         [p_a, p_t, p_nt])
         return [math.ceil(x * self.p_exit_latent) for x in [a, t, nt]]
 
     def draw_new_recovered_counts(self, node_id):
@@ -248,6 +253,8 @@ class GleamModel(nx.DiGraph):
         self.node[node_id]['foi'] = (self.seasonality() / 
                                      self.effective_population(node_id) *
                                      total_infectious)
+        # if node_id == 'n890':
+        #     print(self.node[node_id]['foi'])
 
     def get_exit_rate(self, node_id):
         """
@@ -271,6 +278,8 @@ class GleamModel(nx.DiGraph):
             self.update_force_of_infection(node_id)
         for node_id in self.nodes_iter():
             new_latent = self.draw_new_latent_count(node_id)
+            # if node_id == 'n890':
+            #     print(new_latent)
             new_inf_a, new_inf_t, new_inf_nt = self.draw_new_infectious_counts(node_id)
             new_a_to_r, new_t_to_r, new_nt_to_r = self.draw_new_recovered_counts(node_id)
             total_new_inf = new_inf_a + new_inf_t + new_inf_nt
@@ -291,7 +300,6 @@ class GleamModel(nx.DiGraph):
 
             self.node[node_id]['history'].append(Counter(compartments))
 
-
     def seasonality(self, hemisphere=None):
         """
         Computes the scalar factor to apply on force of infection.
@@ -310,7 +318,7 @@ class GleamModel(nx.DiGraph):
         if hemisphere not in ['north', 'south', None]:
             raise ValueError("hemisphere argument must be in ['north', 'south', None]")
         # if hemisphere is None:
-        return 1.5 * self.p_recovery
+        return self.R0 * self.p_recovery
 
     def seed_infectious(self, node_id, seeds=1, inf_type='infectious_t'):
         """
@@ -360,6 +368,84 @@ class GleamModel(nx.DiGraph):
         p_effective_immunization = p_vaccination * vaccine_effectiveness
         self.node[node_id]['compartments']['susceptible'] *= 1 - p_effective_immunization
 
+    def run_n_simulations(self, params, output_file):
+        """
+        Using the same starting conditions, will run the infection process n times and
+        save the values of each compartment for each node at each timestep for each simulation.
+
+        The returned object has the following structure:
+        A list, where each item is the result of a single simulation.
+        The list items are dicts with node names for keys.
+        Each node key has a dict as a value, with keys for each compartments (susceptible, latent, etc.)
+        Each compartment key has a list value, with one integer per timestep.
+        
+        example:           
+        [          timesteps -------->  1 -> 2 -> 3 -> 4
+             {'node1': {'susceptible': [10 , 9 ,  7 ,  4 ],
+                        'latent': [..., ..., ..., ...],
+                        'infectious_a': [..., ..., ..., ...],
+                        'infectious_t': [..., ..., ..., ...],       <-- First simulation
+                        'infectious_nt': [..., ..., ..., ...],
+                        'recovered': [..., ..., ..., ...],}, 
+              'node2': {...},
+              ...
+             }, 
+             {'node1': {...}, 
+              'node2': {...},                                       <-- Second simulation      
+              ...
+             },
+             ...
+        ]
+        """
+
+        def there_is_infected_nodes(model):
+            return any(any(model.node[node_id]['compartments'][comp] != 0
+                           for comp in ['latent', 'infectious_t',
+                                       'infectious_a', 'infectious_nt'])
+                       for node_id in model.nodes_iter())
+
+        def reset_model(model):
+            for i in model.nodes_iter():
+                model.node[i]['compartments'] = deepcopy(model.node[i]['fresh_compartments'])
+                model.node[i]['history'] = [deepcopy(model.node[i]['compartments'])]
+
+        res = [] 
+        new_model = deepcopy(self)
+        steps_data = []
+
+        for n in range(params['nb_simulations']):
+            reset_model(new_model)
+            new_model.seed_infectious(params['starting_node'], params['seeds'])
+            print(strftime('%H:%M:%S') + '  Simulation #{}  -- START'.format(n+1))
+            
+            steps = 0
+            while (there_is_infected_nodes(new_model) 
+                    and steps <= params['max_timesteps']):
+                new_model.infect()
+                steps += 1
+            
+            steps_data.append(steps)
+
+            res.append({})
+            for node_id in new_model.nodes_iter():
+                res[-1][node_id] = {'susceptible': [],
+                                    'latent': [],
+                                    'infectious': [],
+                                    'recovered': []}
+                for h in new_model.node[node_id]['history']:
+                    res[-1][node_id]['susceptible'].append(h['susceptible'])
+                    res[-1][node_id]['latent'].append(h['latent'])
+                    res[-1][node_id]['infectious'].append(h['infectious_a'] +
+                                                          h['infectious_t'] +
+                                                          h['infectious_nt'])
+                    res[-1][node_id]['recovered'].append(h['recovered'])
+
+            print(strftime('%H:%M:%S') + '  Simulation #{}  -- END'.format(n+1))
+        print(steps_data)
+
+        with open(output_file, 'w') as f:
+            json.dump(res, f)
+
     def average_over_n_simulations(self, params):
         """Using the same starting conditions, will run the infection process
         n times, then for each node will place in history the average value over
@@ -398,10 +484,10 @@ class GleamModel(nx.DiGraph):
         new_model = deepcopy(self)
         steps_data = []
 
-        for i in range(1, params['nb_simulations'] + 1):
+        for i in range(params['nb_simulations']):
             reset_model(new_model)
             new_model.seed_infectious(params['starting_node'], params['seeds'])
-            print(strftime('%H:%M:%S') + '  Simulation #{}'.format(i))
+            print(strftime('%H:%M:%S') + '  Simulation #{}'.format(i+1))
             
             steps = 0
             while (there_is_infected_nodes(new_model) 
@@ -417,14 +503,14 @@ class GleamModel(nx.DiGraph):
                 
                 # Add compartment values for each node, divided by number of iterations,
                 # to model node histories
-                for i in range(min(len(history), params['max_timesteps'])):
+                for j in range(min(len(history), params['max_timesteps'])):
                     weighted_comps = Counter({k: v / params['nb_simulations'] 
-                                             for k, v in history[i].items()})
-                    self.node[node_id]['history'][i] += weighted_comps
+                                             for k, v in history[j].items()})
+                    self.node[node_id]['history'][j] += weighted_comps
                 
                 # Fill the rest of each node's history with the last compartment values.-
-                for i in range(len(history), params['max_timesteps']):
-                    self.node[node_id]['history'][i] += Counter({k: v / params['nb_simulations'] 
+                for j in range(len(history), params['max_timesteps']):
+                    self.node[node_id]['history'][j] += Counter({k: v / params['nb_simulations'] 
                                                                 for k, v in history[-1].items()})
         print(steps_data)
 
@@ -481,6 +567,7 @@ class GleamModel(nx.DiGraph):
 
 if __name__ == '__main__':
     np.random.seed(0)
+    random.seed(0)
 
     # Define model parameters
     starting_date = date(2016, 7, 11)
@@ -513,7 +600,7 @@ if __name__ == '__main__':
     simul_params  = {'starting_node': 'n890',
                      'seeds': 1,
                      'nb_simulations': 100,
-                     'max_timesteps': 300,
+                     'max_timesteps': 2000,
                      'p_vaccination': 0.0,
                      'vaccine_effectiveness': 0.6}
 
@@ -527,11 +614,14 @@ if __name__ == '__main__':
     # gleam.seed_infectious(simul_params['starting_node'],
     #                       seeds=simul_params['seeds'])
     
-    gleam.average_over_n_simulations(simul_params)
+    # gleam.average_over_n_simulations(simul_params)
 
-    output_file = 'output/H1N1_node-{}_seed-{}_n-{}_vacc-{}.jsonp'.format(simul_params['starting_node'][1:],
-                                                             simul_params['seeds'],
-                                                             simul_params['nb_simulations'],
-                                                             simul_params['p_vaccination'])
-    gleam.generate_timestamped_geojson_output(output_file)
+    for i in range(1, 11):
+        output_file = 'output/H1N1_node-{}_seed-{}_n-{}_vacc-{}_new_output_{}.json'.format(simul_params['starting_node'][1:],
+                                                                 simul_params['seeds'],
+                                                                 simul_params['nb_simulations'],
+                                                                 simul_params['p_vaccination'],
+                                                                 i)
+        gleam.run_n_simulations(simul_params, output_file)
+    # gleam.generate_timestamped_geojson_output(output_file)
 
