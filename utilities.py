@@ -1,6 +1,7 @@
 # !/usr/bin/env python
 #  encoding: utf-8
 
+import os
 import pandas as pd
 import pygal
 import networkx as nx
@@ -375,6 +376,26 @@ def generate_geojson_commuting_edges(input_file, output_file, min_commuting_rate
     with open(output_file, 'w') as f:
         f.write(output_str)
 
+def get_recovered_counts_from_results(input_folder):
+    """
+    Retrieve recovered counts at last time steps from many simulations,
+    possibly contained in many files in the input_folder.
+    """
+    counts = []
+    sus_counts = []
+    for file in os.listdir(input_folder):
+        data = json.load(open(os.path.join(input_folder, file)))
+        for simul in data:
+            total_rec = 0
+            total_sus = 0
+            for history in simul.values():
+                total_sus += history['susceptible'][0]
+                # Take the number of recovered at last timestep
+                total_rec += history['recovered'][-1]
+            counts.append(total_rec)
+            sus_counts.append(total_sus)
+    print(counts)
+    print(sus_counts)
 
 if __name__ == '__main__':
     # G = nx.read_graphml('/data/influenza/rwanda/rwa_net.graphml')
@@ -398,5 +419,7 @@ if __name__ == '__main__':
     # get_csv_data_from_results_global('output/H1N1_node-890_seed-1_n-100_vacc-0.0.jsonp',
     #                                  'csv/H1N1_node-890_seed-1_n-100_vacc-0.0_GLOBAL.csv')
 
-    get_csv_data_from_results_by_node('output/H1N1_node-890_seed-1_n-100_vacc-0.0.jsonp',
-                                      'csv/H1N1_node-890_seed-1_n-100_vacc-0.0_BYNODE.csv')
+    # get_csv_data_from_results_by_node('output/H1N1_node-890_seed-1_n-100_vacc-0.0.jsonp',
+    #                                   'csv/H1N1_node-890_seed-1_n-100_vacc-0.0_BYNODE.csv')
+
+    get_recovered_counts_from_results('output/test')
