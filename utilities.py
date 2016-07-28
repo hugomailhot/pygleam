@@ -397,6 +397,31 @@ def get_recovered_counts_from_results(input_folder):
     print(counts)
     print(sus_counts)
 
+
+def plot_histogram(input_file):
+    style.use('dark_background')
+    with open(input_file) as f:
+        counts = json.load(f)
+
+    minimum, maximum = min(counts), max(counts)
+
+    fig, ax = pl.subplots(1,1, tight_layout=True)
+    counts, bins, patches = ax.hist(counts, bins = 10 ** np.linspace(np.log10(minimum), np.log10(maximum), 70),
+                                    facecolor='green',
+                                    edgecolor='black')
+
+    patches[-1].set_color('red')
+
+    # pl.figure()
+    # h = pl.hist(counts, bins = 10 ** np.linspace(np.log10(minimum), np.log10(maximum), 70))
+    pl.gca().set_xscale("log")
+    ax.set_xlabel('Total number of infected during outbreak', fontsize=15)
+    ax.set_ylabel('Number of simulations', fontsize=15)
+    ax.tick_params(labelsize=10)
+    ax.set_ylim(0, 40)
+
+    pl.savefig(input_file[-14:-6]+'.png')
+
 if __name__ == '__main__':
     # G = nx.read_graphml('/data/influenza/rwanda/rwa_net.graphml')
     # prune_edges_with_max_distance(G, 50000)
@@ -422,4 +447,10 @@ if __name__ == '__main__':
     # get_csv_data_from_results_by_node('output/H1N1_node-890_seed-1_n-100_vacc-0.0.jsonp',
     #                                   'csv/H1N1_node-890_seed-1_n-100_vacc-0.0_BYNODE.csv')
 
-    get_recovered_counts_from_results('output/test')
+    # get_recovered_counts_from_results('output/test')
+
+    plot_histogram('/home/hugo/Projects/pygleam/output/recovered_counts_0.0.json')
+    plot_histogram('/home/hugo/Projects/pygleam/output/recovered_counts_0.2.json')
+    plot_histogram('/home/hugo/Projects/pygleam/output/recovered_counts_0.4.json')
+    plot_histogram('/home/hugo/Projects/pygleam/output/recovered_counts_0.6.json')
+    plot_histogram('/home/hugo/Projects/pygleam/output/recovered_counts_0.8.json')
