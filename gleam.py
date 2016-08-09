@@ -68,6 +68,7 @@ class Model(nx.DiGraph):
         self.return_rate = params['commuting_return_rate']
         self.asym_downscaler = params['asym_downscaler']
         self.starting_date = params['starting_date']
+        self.r0 = params['r0']
 
 
         for i in self.nodes_iter():
@@ -233,7 +234,7 @@ class Model(nx.DiGraph):
             neighbors_infectious += commuting_nb_inf
 
         total_infectious = local_infectious + neighbors_infectious
-        return (self.seasonality() / self.effective_population(node_id) *
+        return (self.rate_of_transmission() / self.effective_population(node_id) *
                 total_infectious)
 
     def get_exit_rate(self, node_id):
@@ -274,7 +275,7 @@ class Model(nx.DiGraph):
 
             self.node[node_id]['history'].append(Counter(compartments))
 
-    def seasonality(self, hemisphere=None):
+    def rate_of_transmission(self, hemisphere=None):
         """
         Computes the scalar factor to apply on force of infection.
 
@@ -282,17 +283,16 @@ class Model(nx.DiGraph):
             hemisphere (str): either 'north', 'south' or None
 
         Returns:
-            float: seasonality value for the given hemisphere, or 1 if no hemisphere
-                   value was given
+            float: rate of transmission for given node, taking seasonality into account
 
         Raises:
-            ValueError: Description
+            ValueError: hemisphere argument must be in ['north', 'south', None]
         """
         # TODO: implement seasonality computation
         if hemisphere not in ['north', 'south', None]:
             raise ValueError("hemisphere argument must be in ['north', 'south', None]")
-        # if hemisphere is None:
-        return 1.5 * self.p_recovery
+        if hemisphere is None:
+            return self.r0
 
     def seed_infectious(self, node_id, seeds=1, inf_type='infectious_t'):
         """
@@ -443,6 +443,7 @@ if __name__ == '__main__':
                         'p_travel_allowed': 0.3,
                         'commuting_return_rate': 3,
                         'asym_downscaler': 1,
+                        'r0':1.31,
                         'starting_date': starting_date}
     
     simul_params  = {'starting_node': 'n842',
