@@ -343,7 +343,9 @@ class Model(nx.DiGraph):
             vaccine_effectiveness (float): probability that the vaccine actually works
         """
         p_effective_immunization = p_vaccination * vaccine_effectiveness
-        self.node[node_id]['compartments']['susceptible'] *= p_effective_immunization
+        immunized = self.node[node_id]['compartments']['susceptible'] * p_effective_immunization
+        self.node[node_id]['compartments']['susceptible'] -= immunized
+        self.node[node_id]['compartments']['recovered'] += immunized
 
     def run_n_simulations(self, n, timesteps=200):
         """Using the same starting conditons, will run the infection process
