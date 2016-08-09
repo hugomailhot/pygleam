@@ -1,0 +1,8 @@
+{
+  "nb_simulations": 50,
+  "p_vaccine_effectiveness": 0.6,
+  "starting_node": "n842",
+  "timesteps_per_simul": 200,
+  "seeds": 1,
+  "p_vaccinated": 0.8
+}

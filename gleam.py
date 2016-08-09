@@ -433,21 +433,13 @@ if __name__ == '__main__':
 
     # Define model parameters
     starting_date = date(2016, 7, 11)
-    model_parameters = {'p_exit_latent': 1 / 1.1,
-                        'p_recovery': 1 / 2.95,
-                        'p_asymptomatic': 0.2,
-                        'p_travel_allowed': 0.3,
-                        'commuting_return_rate': 3,
-                        'asym_downscaler': 1,
-                        'r0':1.31,
-                        'starting_date': starting_date}
+
+    with open('model_params.json') as f:
+        model_parameters = json.load(f)
+    model_parameters['starting_date'] = starting_date
     
-    simul_params  = {'starting_node': 'n842',
-                     'seeds': 1,
-                     'p_vaccinated': 0.8,
-                     'p_vaccine_effectiveness': 0.6,
-                     'nb_simulations': 50,
-                     'timesteps_per_simul': 200}
+    with open('simul_params.json') as f:
+        simul_params = json.load(f)
 
     graph_filepath = 'data/rwa_net.graphml'
     gleam = Model(nx.read_graphml(graph_filepath), model_parameters)

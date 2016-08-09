@@ -1,0 +1,9 @@
+{
+  "p_asymptomatic": 0,
+  "asym_downscaler": 1,
+  "commuting_return_rate": 3,
+  "r0": 1.31,
+  "p_exit_latent": 0.9090909090909091,
+  "p_travel_allowed": 1.0,
+  "p_recovery": 0.3389830508474576
+}
