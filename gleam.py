@@ -93,22 +93,6 @@ class Model(nx.DiGraph):
         # TODO: implement this
         pass
 
-    def draw_new_latent_count(self, node_id):
-        """
-        For a given node, draws a random value from a binomial distribution
-        defined by susceptible population and chance of contagion.
-
-        Args:
-            node_id (int): id of the nx.DiGraph node
-
-        Returns:
-            float: Probability extracted from the binomial distribution
-        """
-        if self.node[node_id]['compartments']['susceptible'] < 1:
-            return 0
-        return np.random.binomial(self.node[node_id]['compartments']['susceptible'],
-                                  self.effective_force_of_infection(node_id))
-
     def draw_new_infectious_counts(self, node_id):
         """
         First extract probabilities for asymptomatic, travelling and non travelling
@@ -130,6 +114,22 @@ class Model(nx.DiGraph):
         a, t, nt = np.random.multinomial(self.node[node_id]['compartments']['latent'],
                                          [p_a, p_t, p_nt], size=1)[0]
         return [math.ceil(x * self.p_exit_latent) for x in [a, t, nt]]
+    
+    def draw_new_latent_count(self, node_id):
+        """
+        For a given node, draws a random value from a binomial distribution
+        defined by susceptible population and chance of contagion.
+
+        Args:
+            node_id (int): id of the nx.DiGraph node
+
+        Returns:
+            float: Probability extracted from the binomial distribution
+        """
+        if self.node[node_id]['compartments']['susceptible'] < 1:
+            return 0
+        return np.random.binomial(self.node[node_id]['compartments']['susceptible'],
+                                  self.effective_force_of_infection(node_id))
 
     def draw_new_recovered_counts(self, node_id):
         """
@@ -176,66 +176,27 @@ class Model(nx.DiGraph):
 
     def effective_force_of_infection(self, node_id):
         """For given subpopulation node, computes effective for of infection,
-
         taking into account two terms:
             1)  the local force of infection;
             2)  the forces of infection in neighboring nodes, scaled respectively
                 by the amount of people from local node that commute to these neighbors.
-
         Args:
             node_id (int): id of the nx.DiGraph node
-
         Returns:
             float: Effective force of infection at given node.
         """
         local_exit_rate = self.node[node_id]['exit_rate']
-        local_foi = self.force_of_infection(node_id) / (1 + local_exit_rate)
+        local_foi = self.node[node_id]['foi'] / (1 + local_exit_rate)
 
         nbs_foi = 0
         # Only consider neighbors that can be attained from local node, ie successors
         for nb_id in self.successors(node_id):
             commuting_rate_local_to_nb = self.edge[node_id][nb_id]['commuting_rate']
             effective_commuting_rate = commuting_rate_local_to_nb / self.return_rate
-            nbs_foi += (self.force_of_infection(nb_id) * effective_commuting_rate /
+            nbs_foi += (self.node[nb_id]['foi'] * effective_commuting_rate /
                         (1 + local_exit_rate))
 
         return local_foi + nbs_foi
-
-    def force_of_infection(self, node_id):
-        """For a given node, computes the force of infection, taking into two
-
-        terms:
-            1)  the number of infectious people in local node;
-            2)  the number of infectious people from neighboring node that commute
-                to local node.
-
-        Args:
-            node_id (int): id of the nx.DiGraph node
-
-        Returns:
-            float: Force of infection at given node.
-        """
-        node_pop = self.node[node_id]['compartments']
-        scaled_asym_pop = self.asym_downscaler * node_pop['infectious_a']
-        local_exit_rate = self.node[node_id]['exit_rate']
-        local_infectious = (node_pop['infectious_nt'] +
-                            (node_pop['infectious_t'] + scaled_asym_pop) /
-                            (1 + local_exit_rate))
-
-        neighbors_infectious = 0
-        # Only consider neighbors that have an edge inbound to local node, ie predecessors
-        for nb_id in self.predecessors(node_id):
-            nb_pop = self.node[nb_id]['compartments']
-            scaled_asym_pop = self.asym_downscaler * nb_pop['infectious_a']
-            nb_exit_rate = self.node[nb_id]['exit_rate']
-            commuting_rate = self.edge[nb_id][node_id]['commuting_rate']
-            commuting_nb_inf = ((nb_pop['infectious_t'] + scaled_asym_pop) /
-                                (1 + nb_exit_rate)) * commuting_rate
-            neighbors_infectious += commuting_nb_inf
-
-        total_infectious = local_infectious + neighbors_infectious
-        return (self.rate_of_transmission() / self.effective_population(node_id) *
-                total_infectious)
 
     def get_exit_rate(self, node_id):
         """
@@ -253,6 +214,8 @@ class Model(nx.DiGraph):
         """
         Runs one step of the infection process on every node in the network.
         """
+        for node_id in self.nodes_iter():
+            self.update_force_of_infection(node_id)
         for node_id in self.nodes_iter():
             new_latent = self.draw_new_latent_count(node_id)
             new_inf_a, new_inf_t, new_inf_nt = self.draw_new_infectious_counts(node_id)
@@ -330,6 +293,39 @@ class Model(nx.DiGraph):
             int: Sum of values in all compartments
         """
         return sum(node_pop.values())
+
+    def update_force_of_infection(self, node_id):
+        """For a given node, computes the force of infection, taking into two
+        terms:
+            1)  the number of infectious people in local node;
+            2)  the number of infectious people from neighboring node that commute
+                to local node.
+        Args:
+            node_id (int): id of the nx.DiGraph node
+        """
+        node_pop = self.node[node_id]['compartments']
+        scaled_asym_pop = self.asym_downscaler * node_pop['infectious_a']
+        local_exit_rate = self.node[node_id]['exit_rate']
+        local_infectious = (node_pop['infectious_nt'] +
+                            (node_pop['infectious_t'] + scaled_asym_pop) /
+                            (1 + local_exit_rate))
+
+        neighbors_infectious = 0
+        # Only consider neighbors that have an edge inbound to local node, ie predecessors
+        for nb_id in self.predecessors(node_id):
+            nb_pop = self.node[nb_id]['compartments']
+            scaled_asym_pop = self.asym_downscaler * nb_pop['infectious_a']
+            nb_exit_rate = self.node[nb_id]['exit_rate']
+            commuting_rate = self.edge[nb_id][node_id]['commuting_rate']
+            commuting_nb_inf = ((nb_pop['infectious_t'] + scaled_asym_pop) /
+                                (1 + nb_exit_rate)) * commuting_rate
+            neighbors_infectious += commuting_nb_inf
+
+        total_infectious = local_infectious + neighbors_infectious
+
+        self.node[node_id]['foi'] = (self.rate_of_transmission() / 
+                                     self.effective_population(node_id) *
+                                     total_infectious)
 
     def vaccinate_node(self, node_id, p_vaccination, vaccine_effectiveness):
         """Substract from the node susceptible compartment the effective number
