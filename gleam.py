@@ -84,9 +84,6 @@ class Model(nx.DiGraph):
             self.node[i]['history'] = [deepcopy(self.node[i]['compartments'])]
             self.node[i]['exit_rate'] = self.get_exit_rate(i)
 
-        for i in self.nodes_iter():
-            self.node[i]['effective_population'] = self.effective_population(i)
-
     def compute_long_distance_travels(self):
         """
         Redistributes travelers among neighboring nodes, according to
@@ -236,7 +233,7 @@ class Model(nx.DiGraph):
             neighbors_infectious += commuting_nb_inf
 
         total_infectious = local_infectious + neighbors_infectious
-        return (self.seasonality() / self.node[node_id]['effective_population'] *
+        return (self.seasonality() / self.effective_population(node_id) *
                 total_infectious)
 
     def get_exit_rate(self, node_id):
@@ -460,8 +457,8 @@ if __name__ == '__main__':
 
     # Kigali is n842
     gleam.vaccinate_node('n842',
-                         simul_params['p_vaccinated'],
-                         simul_params['p_vaccine_effectiveness'])
+                         p_vaccination=simul_params['p_vaccinated'],
+                         vaccine_effectiveness=simul_params['p_vaccine_effectiveness'])
     
     gleam.seed_infectious(simul_params['starting_node'],
                           seeds=simul_params['seeds'])
