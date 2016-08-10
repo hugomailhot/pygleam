@@ -347,7 +347,7 @@ class Model(nx.DiGraph):
         self.node[node_id]['compartments']['susceptible'] -= immunized
         self.node[node_id]['compartments']['recovered'] += immunized
 
-    def run_n_simulations(self, n, timesteps=200):
+    def run_n_simulations(self, n, max_timesteps=200):
         """Using the same starting conditons, will run the infection process
         n times, then for each node will place in history the average value over
         all simulations for each time step.
@@ -370,22 +370,25 @@ class Model(nx.DiGraph):
 
         for node_id in self.nodes_iter():
             self.node[node_id]['history'] = []
-            for i in range(timesteps):
+            for i in range(max_timesteps):
                 self.node[node_id]['history'].append(Counter(new_compartment))
 
         for i in range(1, n + 1):
             new_model = deepcopy(self.fresh_copy)
             print(strftime('%H:%M:%S') + '  Simulation #{}'.format(i))
-            for t in range(timesteps):
-                print(strftime('%H:%M:%S') + '  step #{}'.format(t))
+            timestep = 0
+            while there_is_infected_nodes(self):
+                timestep += 1
+                if timestep > max_timesteps:
+                    break
                 new_model.infect()
             # Add compartment values for each node, divided by number of iterations,
             # to model node histories
             for node_id in new_model.nodes_iter():
                 history = new_model.node[node_id]['history']
-                for i in range(timesteps):
-                    weighted_comps = Counter({k: v / n for k, v in history[i].items()})
-                    self.node[node_id]['history'][i] += weighted_comps
+                for j in range(max_timesteps):
+                    weighted_comps = Counter({k: v / n for k, v in history[j].items()})
+                    self.node[node_id]['history'][j] += weighted_comps
 
     def generate_timestamped_geojson_output(self, output_file):
         """Generates the file to be read by the Leaflet.js visualization script.
@@ -461,7 +464,7 @@ if __name__ == '__main__':
                           seeds=simul_params['seeds'])
     
     gleam.run_n_simulations(n=simul_params['nb_simulations'],
-                            timesteps=simul_params['timesteps_per_simul'])
+                            max_timesteps=simul_params['timesteps_per_simul'])
 
     output_file = 'output/node-{}_seed-{}_n-{}_test.jsonp'.format(simul_params['starting_node'][1:],
                                                              simul_params['seeds'],
