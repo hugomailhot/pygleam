@@ -128,15 +128,8 @@ class Model(nx.DiGraph):
         """
         if self.node[node_id]['compartments']['susceptible'] < 1:
             return 0
-        foi = self.effective_force_of_infection(node_id)
-        if foi > 1:
-            print(foi)
-            pprint(self.node[node_id]['compartments'])
-            print(len(self.successors(node_id)))
-            print(len(self.predecessors(node_id)))
-            foi = 1
         return np.random.binomial(self.node[node_id]['compartments']['susceptible'],
-                                  foi)
+                                  self.effective_force_of_infection(node_id))
 
     def draw_new_recovered_counts(self, node_id):
         """
@@ -228,6 +221,10 @@ class Model(nx.DiGraph):
             new_a_to_r, new_t_to_r, new_nt_to_r = self.draw_new_recovered_counts(node_id)
             total_new_inf = new_inf_a + new_inf_t + new_inf_nt
             total_new_recovered = new_a_to_r + new_t_to_r + new_nt_to_r
+            # if node_id == 'n890':
+            #     print('new_latent: {}'.format(new_latent))
+            #     print('new_recovered: {}'.format(total_new_recovered))
+            #     pprint(self.node[node_id]['compartments'])
 
             compartments = self.node[node_id]['compartments']
 
@@ -330,9 +327,9 @@ class Model(nx.DiGraph):
 
         total_infectious = local_infectious + neighbors_infectious
 
-        self.node[node_id]['foi'] = (self.rate_of_transmission() / 
-                                     self.effective_population(node_id) *
-                                     total_infectious)
+        self.node[node_id]['foi'] = (self.rate_of_transmission() *
+                                     total_infectious / 
+                                     self.effective_population(node_id) )
 
     def vaccinate_node(self, node_id, p_vaccination, vaccine_effectiveness):
         """Substract from the node susceptible compartment the effective number
@@ -377,11 +374,13 @@ class Model(nx.DiGraph):
             new_model = deepcopy(self.fresh_copy)
             print(strftime('%H:%M:%S') + '  Simulation #{}'.format(i))
             timestep = 0
-            while there_is_infected_nodes(self):
+            while there_is_infected_nodes(new_model):
                 timestep += 1
                 if timestep > max_timesteps:
                     break
+                print(strftime('%H:%M:%S') + '  Timestep #{}'.format(timestep))
                 new_model.infect()
+                pprint(new_model.node['n890']['compartments'])
             # Add compartment values for each node, divided by number of iterations,
             # to model node histories
             for node_id in new_model.nodes_iter():
@@ -442,31 +441,30 @@ class Model(nx.DiGraph):
 
 if __name__ == '__main__':
 
-    # Define model parameters
-    starting_date = date(2016, 7, 11)
+    with open('pygleam_params.json') as f:
+        params = json.load(f)
 
-    with open('model_params.json') as f:
-        model_parameters = json.load(f)
-    model_parameters['starting_date'] = starting_date
+    params['starting_date'] = date(2016, 7, 11)
+
+    graph_filepath = 'data/rwa-net_07-22-2016.graphml'
+    gleam = Model(nx.read_graphml(graph_filepath), params)
+
+    # Kigali is n890
+    # Gisenyi is n1239
+    # Musanze is n1451
+    # Muhanga is n620
+    # Huye is n78
+    gleam.vaccinate_node('n890',
+                         p_vaccination=params['p_vaccinated'],
+                         vaccine_effectiveness=params['p_vaccine_effectiveness'])
     
-    with open('simul_params.json') as f:
-        simul_params = json.load(f)
-
-    graph_filepath = 'data/rwa_net.graphml'
-    gleam = Model(nx.read_graphml(graph_filepath), model_parameters)
-
-    # Kigali is n842
-    gleam.vaccinate_node('n842',
-                         p_vaccination=simul_params['p_vaccinated'],
-                         vaccine_effectiveness=simul_params['p_vaccine_effectiveness'])
+    gleam.seed_infectious(params['starting_node'],
+                          seeds=params['seeds'])
     
-    gleam.seed_infectious(simul_params['starting_node'],
-                          seeds=simul_params['seeds'])
-    
-    gleam.run_n_simulations(n=simul_params['nb_simulations'],
-                            max_timesteps=simul_params['timesteps_per_simul'])
+    gleam.run_n_simulations(n=params['nb_simulations'],
+                            max_timesteps=params['timesteps_per_simul'])
 
-    output_file = 'output/node-{}_seed-{}_n-{}_test.jsonp'.format(simul_params['starting_node'][1:],
-                                                             simul_params['seeds'],
-                                                             simul_params['nb_simulations'])
+    output_file = 'output/node-{}_seed-{}_n-{}_test.jsonp'.format(params['starting_node'][1:],
+                                                                  params['seeds'],
+                                                                  params['nb_simulations'])
     gleam.generate_timestamped_geojson_output(output_file)

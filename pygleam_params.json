@@ -1,0 +1,18 @@
+{
+  "p_asymptomatic": 0.2,
+  "asym_downscaler": 1,
+  "r0": 1.31,
+  "p_exit_latent": 0.37037037037037035,
+  "p_recovery": 0.3389830508474576,
+
+  "starting_node": "n890",
+  "seeds": 1,
+  "p_vaccinated": 0.0,
+  "p_vaccine_effectiveness": 0.6,
+  
+  "nb_simulations": 1,
+  "timesteps_per_simul": 1000,
+  
+  "commuting_return_rate": 3,
+  "p_travel_allowed": 1.0
+}
