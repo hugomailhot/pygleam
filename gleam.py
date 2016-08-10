@@ -128,8 +128,15 @@ class Model(nx.DiGraph):
         """
         if self.node[node_id]['compartments']['susceptible'] < 1:
             return 0
+        foi = self.effective_force_of_infection(node_id)
+        if foi > 1:
+            print(foi)
+            pprint(self.node[node_id]['compartments'])
+            print(len(self.successors(node_id)))
+            print(len(self.predecessors(node_id)))
+            foi = 1
         return np.random.binomial(self.node[node_id]['compartments']['susceptible'],
-                                  self.effective_force_of_infection(node_id))
+                                  foi)
 
     def draw_new_recovered_counts(self, node_id):
         """
@@ -146,34 +153,6 @@ class Model(nx.DiGraph):
         nt_recovered = np.random.binomial(node_pop['infectious_nt'], self.p_recovery)
         return (a_recovered, t_recovered, nt_recovered)
 
-    def effective_population(self, node_id):
-        """
-        For given subpopulation node, compute effective total population,
-        taking into account the commuting rates between neighboring subpopulations.
-
-        Args:
-            node_id (int): id of the nx.DiGraph node
-
-        Returns:
-            int: Effective population of given node.
-        """
-        node_pop = self.node[node_id]['compartments']
-        node_exit_rate = self.node[node_id]['exit_rate']
-        local_pop = (node_pop['infectious_nt'] +
-                     (sum(node_pop.values()) - node_pop['infectious_nt']) /
-                     (1 + node_exit_rate))
-
-        other_pop = 0
-        # Only consider neighbors that have an edge inbound to local node, ie predecessors
-        for nb_id in self.predecessors(node_id):
-            nb_pop = self.node[nb_id]['compartments']
-            nb_exit_rate = self.node[nb_id]['exit_rate']
-            other_pop += (((sum(nb_pop.values()) - node_pop['infectious_nt']) /
-                           (1 + nb_exit_rate)) *
-                          self.edge[nb_id][node_id]['commuting_rate'] / self.return_rate)
-
-        return local_pop + other_pop
-
     def effective_force_of_infection(self, node_id):
         """For given subpopulation node, computes effective for of infection,
         taking into account two terms:
@@ -186,17 +165,45 @@ class Model(nx.DiGraph):
             float: Effective force of infection at given node.
         """
         local_exit_rate = self.node[node_id]['exit_rate']
-        local_foi = self.node[node_id]['foi'] / (1 + local_exit_rate)
+        local_foi = self.node[node_id]['foi'] / (1 + local_exit_rate / self.return_rate)
 
         nbs_foi = 0
         # Only consider neighbors that can be attained from local node, ie successors
         for nb_id in self.successors(node_id):
-            commuting_rate_local_to_nb = self.edge[node_id][nb_id]['commuting_rate']
-            effective_commuting_rate = commuting_rate_local_to_nb / self.return_rate
+            effective_commuting_rate = self.edge[node_id][nb_id]['commuting_rate'] / self.return_rate
+            nb_exit_rate = self.node[node_id]['exit_rate']
             nbs_foi += (self.node[nb_id]['foi'] * effective_commuting_rate /
-                        (1 + local_exit_rate))
+                        (1 + nb_exit_rate / self.return_rate))
 
         return local_foi + nbs_foi
+
+    def effective_population(self, node_id):
+        """
+        For given subpopulation node, compute effective total population,
+        taking into account the commuting rates between neighboring subpopulations.
+
+        Args:
+            node_id (int): id of the nx.DiGraph node
+
+        Returns:
+            int: Effective population of given node.
+        """
+        node_pop = self.node[node_id]['compartments']
+        local_exit_rate = self.node[node_id]['exit_rate']
+        local_pop = (node_pop['infectious_nt'] +
+                     (sum(node_pop.values()) - node_pop['infectious_nt']) /
+                     (1 + local_exit_rate / self.return_rate))
+
+        other_pop = 0
+        # Only consider neighbors that have an edge inbound to local node, ie predecessors
+        for nb_id in self.predecessors(node_id):
+            nb_pop = self.node[nb_id]['compartments']
+            nb_exit_rate = self.node[nb_id]['exit_rate']
+            other_pop += (((sum(nb_pop.values()) - node_pop['infectious_nt']) /
+                           (1 + nb_exit_rate / self.return_rate)) *
+                          self.edge[nb_id][node_id]['commuting_rate'] / self.return_rate)
+
+        return local_pop + other_pop
 
     def get_exit_rate(self, node_id):
         """
@@ -207,8 +214,7 @@ class Model(nx.DiGraph):
             node_id (int): id of the nx.DiGraph node
         """
         return (sum([e[2]['commuting_rate']
-                     for e in self.out_edges(node_id, data=True)]) /
-                self.return_rate)
+                     for e in self.out_edges(node_id, data=True)]))
 
     def infect(self):
         """
@@ -308,7 +314,7 @@ class Model(nx.DiGraph):
         local_exit_rate = self.node[node_id]['exit_rate']
         local_infectious = (node_pop['infectious_nt'] +
                             (node_pop['infectious_t'] + scaled_asym_pop) /
-                            (1 + local_exit_rate))
+                            (1 + local_exit_rate / self.return_rate))
 
         neighbors_infectious = 0
         # Only consider neighbors that have an edge inbound to local node, ie predecessors
@@ -318,7 +324,8 @@ class Model(nx.DiGraph):
             nb_exit_rate = self.node[nb_id]['exit_rate']
             commuting_rate = self.edge[nb_id][node_id]['commuting_rate']
             commuting_nb_inf = ((nb_pop['infectious_t'] + scaled_asym_pop) /
-                                (1 + nb_exit_rate)) * commuting_rate
+                                (1 + nb_exit_rate /self.return_rate) * 
+                                (commuting_rate / self.return_rate))
             neighbors_infectious += commuting_nb_inf
 
         total_infectious = local_infectious + neighbors_infectious
@@ -370,6 +377,7 @@ class Model(nx.DiGraph):
             new_model = deepcopy(self.fresh_copy)
             print(strftime('%H:%M:%S') + '  Simulation #{}'.format(i))
             for t in range(timesteps):
+                print(strftime('%H:%M:%S') + '  step #{}'.format(t))
                 new_model.infect()
             # Add compartment values for each node, divided by number of iterations,
             # to model node histories
@@ -455,7 +463,7 @@ if __name__ == '__main__':
     gleam.run_n_simulations(n=simul_params['nb_simulations'],
                             timesteps=simul_params['timesteps_per_simul'])
 
-    output_file = 'output/node-{}_seed-{}_n-{}.jsonp'.format(starting_node[1:],
-                                                             seeds,
-                                                             nb_simulations)
+    output_file = 'output/node-{}_seed-{}_n-{}_test.jsonp'.format(simul_params['starting_node'][1:],
+                                                             simul_params['seeds'],
+                                                             simul_params['nb_simulations'])
     gleam.generate_timestamped_geojson_output(output_file)
