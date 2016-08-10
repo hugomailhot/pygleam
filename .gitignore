@@ -2,3 +2,14 @@ bin/*
 include/*
 lib/*
 pip-selfcheck.json
+Makefile
+_build/
+charts/
+conf.py
+csv/
+hist_test.py
+index.rst
+nohup.out
+output/*
+simul_params.json
+model_params.json
