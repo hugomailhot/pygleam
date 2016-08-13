@@ -164,9 +164,8 @@ class Model(nx.DiGraph):
         # Only consider neighbors that can be attained from local node, ie successors
         for nb_id in self.successors(node_id):
             effective_commuting_rate = self.edge[node_id][nb_id]['commuting_rate'] / self.return_rate
-            nb_exit_rate = self.node[node_id]['exit_rate']
             nbs_foi += (self.node[nb_id]['foi'] * effective_commuting_rate /
-                        (1 + nb_exit_rate / self.return_rate))
+                        (1 + local_exit_rate / self.return_rate))
 
         return local_foi + nbs_foi
 
@@ -374,6 +373,7 @@ class Model(nx.DiGraph):
             new_model = deepcopy(self.fresh_copy)
             print(strftime('%H:%M:%S') + '  Simulation #{}'.format(i))
             timestep = 0
+            longest_simulation = 0
             while there_is_infected_nodes(new_model):
                 timestep += 1
                 if timestep > max_timesteps:
@@ -381,11 +381,15 @@ class Model(nx.DiGraph):
                 print(strftime('%H:%M:%S') + '  Timestep #{}'.format(timestep))
                 new_model.infect()
                 pprint(new_model.node['n890']['compartments'])
+            if timestep > longest_simulation:
+                longest_simulation = timestep
             # Add compartment values for each node, divided by number of iterations,
             # to model node histories
             for node_id in new_model.nodes_iter():
                 history = new_model.node[node_id]['history']
-                for j in range(max_timesteps):
+                # Pad each history so that it is as long as the longest history
+                history += [history[-1]] * (longest_simulation - len(history))
+                for j in range(len(history)):
                     weighted_comps = Counter({k: v / n for k, v in history[j].items()})
                     self.node[node_id]['history'][j] += weighted_comps
 
@@ -446,7 +450,8 @@ if __name__ == '__main__':
 
     params['starting_date'] = date(2016, 7, 11)
 
-    graph_filepath = 'data/rwa-net_07-22-2016.graphml'
+    # graph_filepath = 'data/rwa-net_07-22-2016.graphml'
+    graph_filepath = '/home/hugo/data/pygleam/rwa-net_cr_pruned_corrected.graphml'
     gleam = Model(nx.read_graphml(graph_filepath), params)
 
     # Kigali is n890
@@ -464,7 +469,7 @@ if __name__ == '__main__':
     gleam.run_n_simulations(n=params['nb_simulations'],
                             max_timesteps=params['timesteps_per_simul'])
 
-    output_file = 'output/node-{}_seed-{}_n-{}_test.jsonp'.format(params['starting_node'][1:],
+    output_file = 'output/node-{}_seed-{}_n-{}_test.jsonp'.format(params['starting_node'],
                                                                   params['seeds'],
                                                                   params['nb_simulations'])
     gleam.generate_timestamped_geojson_output(output_file)
