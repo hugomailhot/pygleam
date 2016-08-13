@@ -285,11 +285,11 @@ def compute_commuting_flow(input_file, output_file):
     Nature 484 (7392): 96–100.
     """
 
-
+    print('reading file')
     g = nx.read_graphml(input_file)
 
-    commuter_ratio = 0.11
-
+    # Percentage of commuters in total population
+    commuter_percentage = 0.11
     counter = 0
     for i in g.nodes_iter():
         print('computing for node {}'.format(counter))
@@ -309,7 +309,7 @@ def compute_commuting_flow(input_file, output_file):
                                                 (pop_i + pop_in_radius) * 
                                                 (pop_i + pop_j + pop_in_radius)
                                               )
-                                             )
+                                             ) * commuter_percentage
     print('writing to file')
     nx.write_graphml(g, output_file)
 
@@ -426,13 +426,14 @@ if __name__ == '__main__':
     # G = nx.read_graphml('/data/influenza/rwanda/rwa_net.graphml')
     # prune_edges_with_max_distance(G, 50000)
     # nx.write_graphml(G, '/data/influenza/rwanda/rwa_net_pruned.graphml')
-    # input_file = '/home/hugo/data/pygleam/2016-07-15_rwa-net.graphml'
-    # output_file = '/home/hugo/data/pygleam/rwa-net_cr.graphml'
-    # compute_commuting_flow(input_file, output_file)
+    
+    input_file = '/home/hugo/data/pygleam/2016-07-15_rwa-net.graphml'
+    output_file = '/home/hugo/data/pygleam/rwa-net_cr_corrected.graphml'
+    compute_commuting_flow(input_file, output_file)
 
-    # input_file = '/home/hugo/data/pygleam/rwa-net_cr.graphml'
-    # output_file = '/home/hugo/data/pygleam/rwa-net_cr_pruned.graphml'
-    # prune_edges_with_min_cr(input_file, output_file, 0.001)
+    input_file = '/home/hugo/data/pygleam/rwa-net_cr_corrected.graphml'
+    output_file = '/home/hugo/data/pygleam/rwa-net_cr_pruned_corrected.graphml'
+    prune_edges_with_min_cr(input_file, output_file, 0.001)
 
     # input_file = '/home/hugo/Projects/gleam/data/rwa_net.graphml'
     # output_file = '/home/hugo/Projects/gleam/data/base_nodes.jsonp'
@@ -449,8 +450,8 @@ if __name__ == '__main__':
 
     # get_recovered_counts_from_results('output/test')
 
-    plot_histogram('/home/hugo/Projects/pygleam/output/recovered_counts_0.0.json')
-    plot_histogram('/home/hugo/Projects/pygleam/output/recovered_counts_0.2.json')
-    plot_histogram('/home/hugo/Projects/pygleam/output/recovered_counts_0.4.json')
-    plot_histogram('/home/hugo/Projects/pygleam/output/recovered_counts_0.6.json')
-    plot_histogram('/home/hugo/Projects/pygleam/output/recovered_counts_0.8.json')
+    # plot_histogram('/home/hugo/Projects/pygleam/output/recovered_counts_0.0.json')
+    # plot_histogram('/home/hugo/Projects/pygleam/output/recovered_counts_0.2.json')
+    # plot_histogram('/home/hugo/Projects/pygleam/output/recovered_counts_0.4.json')
+    # plot_histogram('/home/hugo/Projects/pygleam/output/recovered_counts_0.6.json')
+    # plot_histogram('/home/hugo/Projects/pygleam/output/recovered_counts_0.8.json')
