@@ -7,12 +7,16 @@
 
   "starting_node": "n890",
   "seeds": 1,
-  "p_vaccinated": 0.0,
+
+  "vaccinated_node": "n890",
+  "p_vaccinated": 1.0,
   "p_vaccine_effectiveness": 0.6,
   
-  "nb_simulations": 1,
+  "nb_simulations": 3,
   "timesteps_per_simul": 1000,
   
   "commuting_return_rate": 3,
-  "p_travel_allowed": 1.0
+  "p_travel_allowed": 1.0,
+
+  "graph_data_filepath": "/home/hugo/data/pygleam/rwa-net_cr_pruned_corrected.graphml"
 }

@@ -15,7 +15,7 @@ from copy import deepcopy
 import math
 import numpy as np
 import networkx as nx
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 import json
 from time import strftime
 import cProfile
@@ -445,21 +445,21 @@ class Model(nx.DiGraph):
 
 if __name__ == '__main__':
 
+    now_str = datetime.strftime(datetime.now(), '%m-%d-%Y_%H:%M:%S')
+
     with open('pygleam_params.json') as f:
         params = json.load(f)
 
     params['starting_date'] = date(2016, 7, 11)
 
-    # graph_filepath = 'data/rwa-net_07-22-2016.graphml'
-    graph_filepath = '/home/hugo/data/pygleam/rwa-net_cr_pruned_corrected.graphml'
-    gleam = Model(nx.read_graphml(graph_filepath), params)
+    gleam = Model(nx.read_graphml(params['graph_data_filepath']), params)
 
     # Kigali is n890
     # Gisenyi is n1239
     # Musanze is n1451
     # Muhanga is n620
     # Huye is n78
-    gleam.vaccinate_node('n890',
+    gleam.vaccinate_node(params['vaccinated_node'],
                          p_vaccination=params['p_vaccinated'],
                          vaccine_effectiveness=params['p_vaccine_effectiveness'])
     
@@ -469,7 +469,8 @@ if __name__ == '__main__':
     gleam.run_n_simulations(n=params['nb_simulations'],
                             max_timesteps=params['timesteps_per_simul'])
 
-    output_file = 'output/node-{}_seed-{}_n-{}_test.jsonp'.format(params['starting_node'],
+    output_file = 'output/node-{}_seed-{}_n-{}_{}.jsonp'.format(params['starting_node'],
                                                                   params['seeds'],
-                                                                  params['nb_simulations'])
+                                                                  params['nb_simulations'],
+                                                                  now_str)
     gleam.generate_timestamped_geojson_output(output_file)
