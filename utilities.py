@@ -8,55 +8,10 @@ import networkx as nx
 import json
 import re
 import csv
+import sys
 from datetime import date, datetime
 from collections import OrderedDict
-# import folium
-# from folium import plugins
 
-# def plot_results(res, svg_filepath):
-#     results = pd.DataFrame(res)
-#     results['infectious'] = results[['infectious_nt',
-#                                      'infectious_t',
-#                                      'infectious_a']].sum(axis=1)
-
-#     outbreak_peak = results['infectious'].idxmax()
-#     outbreak_end = results['infectious'][outbreak_peak:].idxmin()
-#     peak_inf_percentage = results['infectious'].max() / 2000.0
-
-#     textstr = ('outbreak peak: {}\n'.format(outbreak_peak) +
-#                'highest infection %%: {}%%\n'.format(peak_inf_percentage) +
-#                'outbreak end: {}'.format(outbreak_end))
-
-#     results = results[:outbreak_end]
-
-#     custom_style = pygal.style.Style(colors=["#fdae61", "#d7191c", "#a6d96a", "#1a9641"])
-#     custom_style = pygal.style.DarkStyle
-#     custom_style.colors = ["#feed6c", "#bf4646", "#56c2d6", "#516083"]
-#     line_chart = pygal.StackedLine(dots_size=1,
-#                                    fill=True,
-#                                    show_dots=False,
-#                                    show_y_guides=False,
-#                                    legend_at_bottom=True,
-#                                    legend_at_bottom_columns=2,
-#                                    x_labels_major_every=5,
-#                                    show_minor_x_labels=False,
-#                                    truncate_label=-1,
-#                                    style=custom_style)
-
-#     print(outbreak_end)
-#     line_chart.title = 'Simulation results - Compartment model'
-#     line_chart.x_labels = [str(x) for x in range(outbreak_end)]
-#     line_chart.add('latent', results['latent'])
-#     line_chart.add('infectious', results['infectious'])
-#     line_chart.add('susceptible', [{'value': x, 'color': 'rgba(51, 153, 255, 100)'}
-#                                    for x in results['susceptible']])
-#     # line_chart.add('infectious_symptomatic_travel', results['symptomatic_travel'],
-#                    # color='rgba(230, 0, 0, 70)')
-#     # line_chart.add('infectious_symptomatic_no_travel', results['symptomatic_no_travel'])
-#     line_chart.add('recovered', results['recovered'])
-#     # line_chart.add('infectious_asymptomatic', results['asymptomatic'])
-#     line_chart.render_in_browser()
-#     line_chart.render_to_file(svg_filepath)
 
 # TODO: convert result file to CSV file with following row structure:
 # node_name, timestep, susceptibles, latents, infectious_a, infectious_nt, infectious_t, recovered
@@ -101,6 +56,7 @@ def get_global_compartment_values_by_timestep(results_filepath):
             x = x[:outbreak_end+1]
 
         return {'sus': sus, 'lat': lat, 'inf': inf, 'rec': rec, 'timesteps': timesteps}
+
 
 def get_csv_data_from_results_global(results_filepath, output_csv_filepath):
     """
@@ -167,7 +123,6 @@ def get_csv_data_from_results_by_node(results_filepath, output_csv_filepath):
                 timestep += 1
 
 
-
 def plot_epidemic_curve_from_results(results_filepath, plot_output_filepath):
     """
     Takes a GeoJSON result file and plot the global epidemic curve from it.
@@ -197,7 +152,6 @@ def plot_epidemic_curve_from_results(results_filepath, plot_output_filepath):
                                    
     line_chart.render_in_browser()
     line_chart.render_to_file(plot_output_filepath)
-
 
 
 def graphml_to_geojson(graphml_input_filepath, geojson_output_filepath):
@@ -267,16 +221,7 @@ def format_graph(input_graph_filepath, output_graph_filepath):
     nx.write_gpickle(g, output_graph_filepath)
 
 
-# def test_folium():
-#     geo_data = {"type": "FeatureCollection",
-#                 "features": []}
-#     m = folium.Map([0,3], zoom_start=2)
-#     tgj = plugins.TimestampedGeoJson(geo_data)
-#     m.add_children(tgj)
-#     m.save('folium_test.html')
-
-
-def compute_commuting_flow(input_file, output_file):
+def compute_commuting_flows(input_file, output_file):
     """
     Commuter flow estimation done using the radiation model of traffic flow.
     See article:
@@ -290,15 +235,17 @@ def compute_commuting_flow(input_file, output_file):
 
     # Percentage of commuters in total population
     commuter_percentage = 0.11
-    counter = 0
+    counter = 1
+    total_nodes = len(g.nodes())
     for i in g.nodes_iter():
-        print('computing for node {}'.format(counter))
+        sys.stdout.write("\rProcessing node %d/%d" % (counter, total_nodes) )
         counter += 1
+        sys.stdout.flush()
         pop_i = g.node[i]['pop']
         neighbors = set(nx.neighbors(g, i))
         for j in neighbors:
             pop_j = g.node[j]['pop']
-            other_neighbors = neighbors - set(j)
+            other_neighbors = neighbors - set([j])
             radius = g.edge[i][j]['Total_Length']
             others_in_radius = [nb for nb in other_neighbors
                                 if g.edge[i][nb]['Total_Length'] < radius]
@@ -310,7 +257,7 @@ def compute_commuting_flow(input_file, output_file):
                                                 (pop_i + pop_j + pop_in_radius)
                                               )
                                              ) * commuter_percentage
-    print('writing to file')
+    print('\nwriting to file')
     nx.write_graphml(g, output_file)
 
 
@@ -376,6 +323,7 @@ def generate_geojson_commuting_edges(input_file, output_file, min_commuting_rate
     with open(output_file, 'w') as f:
         f.write(output_str)
 
+
 def get_recovered_counts_from_results(input_folder):
     """
     Retrieve recovered counts at last time steps from many simulations,
@@ -422,17 +370,18 @@ def plot_histogram(input_file):
 
     pl.savefig(input_file[-14:-6]+'.png')
 
+
 if __name__ == '__main__':
     # G = nx.read_graphml('/data/influenza/rwanda/rwa_net.graphml')
     # prune_edges_with_max_distance(G, 50000)
     # nx.write_graphml(G, '/data/influenza/rwanda/rwa_net_pruned.graphml')
     
     input_file = '/home/hugo/data/pygleam/2016-07-15_rwa-net.graphml'
-    output_file = '/home/hugo/data/pygleam/rwa-net_cr_corrected.graphml'
-    compute_commuting_flow(input_file, output_file)
+    output_file = '/home/hugo/data/pygleam/rwa-net_cr_wrong.graphml'
+    compute_commuting_flows(input_file, output_file)
 
-    input_file = '/home/hugo/data/pygleam/rwa-net_cr_corrected.graphml'
-    output_file = '/home/hugo/data/pygleam/rwa-net_cr_pruned_corrected.graphml'
+    input_file = '/home/hugo/data/pygleam/rwa-net_cr_wrong.graphml'
+    output_file = '/home/hugo/data/pygleam/rwa-net_cr_pruned_wrong.graphml'
     prune_edges_with_min_cr(input_file, output_file, 0.001)
 
     # input_file = '/home/hugo/Projects/gleam/data/rwa_net.graphml'
