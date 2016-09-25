@@ -54,8 +54,8 @@ class Model(nx.DiGraph):
             ValueError
             param dict does not contain all required values
         """
-        for param in ['p_exit_latent', 'p_recovery', 'p_asymptomatic',
-                      'p_travel_allowed', 'commuting_return_rate', 'asym_downscaler']:
+        for param in ['p_exit_latent', 'p_recovery', 'commuting_return_rate',
+                      'starting_date', 'r0']:
             if param not in params.keys():
                 raise ValueError("Missing {} parameter".format(param))
 
@@ -63,10 +63,7 @@ class Model(nx.DiGraph):
 
         self.p_exit_latent = params['p_exit_latent']
         self.p_recovery = params['p_recovery']
-        self.p_asymptomatic = params['p_asymptomatic']
-        self.p_travel_allowed = params['p_travel_allowed']
         self.return_rate = params['commuting_return_rate']
-        self.asym_downscaler = params['asym_downscaler']
         self.starting_date = params['starting_date']
         self.r0 = params['r0']
 
@@ -74,11 +71,9 @@ class Model(nx.DiGraph):
         for i in self.nodes_iter():
             self.node[i]['pop'] = math.ceil(self.node[i]['pop'])
             self.node[i]['compartments'] = Counter(
-                                           {'susceptible': math.ceil(self.node[i]['pop']),
+                                           {'susceptible': self.node[i]['pop'],
                                             'latent': 0,
-                                            'infectious_a': 0,
-                                            'infectious_t': 0,
-                                            'infectious_nt': 0,
+                                            'infectious': 0,
                                             'recovered': 0
                                             })
             # Store state at beginning.
@@ -107,13 +102,8 @@ class Model(nx.DiGraph):
                             compartments.
         """
         if self.node[node_id]['compartments']['latent'] < 1:
-            return (0, 0, 0)
-        p_a = self.p_asymptomatic
-        p_t = (1 - self.p_asymptomatic) * self.p_travel_allowed
-        p_nt = (1 - self.p_asymptomatic) * (1 - self.p_travel_allowed)
-        a, t, nt = np.random.multinomial(self.node[node_id]['compartments']['latent'],
-                                         [p_a, p_t, p_nt], size=1)[0]
-        return [math.ceil(x * self.p_exit_latent) for x in [a, t, nt]]
+            return 0
+        return np.random.binomial(self.node[node_id]['compartments']['latent'], self.p_exit_latent)
     
     def draw_new_latent_count(self, node_id):
         """
@@ -136,15 +126,9 @@ class Model(nx.DiGraph):
         For a given node, draw from a binomial distribution the number of infectious
         people that will recover in next time step.
         """
-        node_pop = self.node[node_id]['compartments']
-        if (node_pop['infectious_a'] +
-            node_pop['infectious_t'] +
-                node_pop['infectious_nt']) < 1:
-            return (0, 0, 0)
-        a_recovered = np.random.binomial(node_pop['infectious_a'], self.p_recovery)
-        t_recovered = np.random.binomial(node_pop['infectious_t'], self.p_recovery)
-        nt_recovered = np.random.binomial(node_pop['infectious_nt'], self.p_recovery)
-        return (a_recovered, t_recovered, nt_recovered)
+        if self.node[node_id]['compartments']['infectious'] < 1:
+            return 0
+        return np.random.binomial(self.node['node_id']['compartments']['infectious'], self.p_recovery)
 
     def effective_force_of_infection(self, node_id):
         """For given subpopulation node, computes effective for of infection,
@@ -216,27 +200,15 @@ class Model(nx.DiGraph):
             self.update_force_of_infection(node_id)
         for node_id in self.nodes_iter():
             new_latent = self.draw_new_latent_count(node_id)
-            new_inf_a, new_inf_t, new_inf_nt = self.draw_new_infectious_counts(node_id)
-            new_a_to_r, new_t_to_r, new_nt_to_r = self.draw_new_recovered_counts(node_id)
-            total_new_inf = new_inf_a + new_inf_t + new_inf_nt
-            total_new_recovered = new_a_to_r + new_t_to_r + new_nt_to_r
-            # if node_id == 'n890':
-            #     print('new_latent: {}'.format(new_latent))
-            #     print('new_recovered: {}'.format(total_new_recovered))
-            #     pprint(self.node[node_id]['compartments'])
-
+            new_infectious = self.draw_new_infectious_counts(node_id)
+            new_recovered = self.draw_new_recovered_counts(node_id)
+           
             compartments = self.node[node_id]['compartments']
 
             compartments['susceptible'] -= new_latent
-            compartments['latent'] += new_latent
-            compartments['latent'] -= total_new_inf
-            compartments['infectious_a'] += new_inf_a
-            compartments['infectious_a'] -= new_a_to_r
-            compartments['infectious_t'] += new_inf_t
-            compartments['infectious_t'] -= new_t_to_r
-            compartments['infectious_nt'] += new_inf_nt
-            compartments['infectious_nt'] -= new_nt_to_r
-            compartments['recovered'] += total_new_recovered
+            compartments['latent'] += new_latent - new_infectious
+            compartments['infectious'] += new_infectious - new_recovered
+            compartments['recovered'] += new_recovered
 
             self.node[node_id]['history'].append(Counter(compartments))
 
@@ -259,7 +231,7 @@ class Model(nx.DiGraph):
         if hemisphere is None:
             return self.r0
 
-    def seed_infectious(self, node_id, seeds=1, inf_type='infectious_t'):
+    def seed_infectious(self, node_id, seeds=1):
         """
         Transfers a number of people from susceptible compartment to an infectious
         compartment at given node_id.
@@ -270,20 +242,7 @@ class Model(nx.DiGraph):
             inf_type (str): Specifies the type of infectious to be seeded.
         """
         self.node[node_id]['compartments']['susceptible'] -= seeds
-        self.node[node_id]['compartments'][inf_type] += seeds
-
-    def total_infectious(self, node_id):
-        """Returns the total number of infectious people in a given node population.
-
-        Args:
-            node_pop (dict): Contains population values for the different compartments
-
-        Returns:
-            int: Sum of values in infectious compartments
-        """
-        node_pop = self.node[node_id]['compartments']
-        return sum([node_pop['infectious_nt'], node_pop['infectious_t'],
-                    node_pop['infectious_a']])
+        self.node[node_id]['compartments']['infectious'] += seeds
 
     def total_pop(self, node_pop):
         """Returns the total population in a given node population.
