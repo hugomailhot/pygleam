@@ -63,22 +63,44 @@ class Model(nx.DiGraph):
 
         self.p_exit_latent = params['p_exit_latent']
         self.p_recovery = params['p_recovery']
-        self.return_rate = params['commuting_return_rate']
+        self.tau = params['commuting_return_rate']
         self.starting_date = params['starting_date']
         self.r0 = params['r0']
 
-
+        # Round up population values
         for i in self.nodes_iter():
             self.node[i]['pop'] = math.ceil(self.node[i]['pop'])
-            self.node[i]['compartments'] = Counter(
-                                           {'susceptible': self.node[i]['pop'],
-                                            'latent': 0,
-                                            'infectious': 0,
-                                            'recovered': 0
+
+        # Precompute sigma_by_tau and sigma_ij_by_tau values
+        # sigma for a given node stands for total outgoing commuting rate
+        # sigma_ij stands for commuting rate of node i towards node j
+        for i in g.nodes_iter():
+            sigma_by_tau = sum([g.edge[i][j]['cr'] 
+                                for j in g.successors(source)]) / self.tau
+            g.node[i]['sigma_by_tau'] = sigma_by_tau
+            for j in g.successors(source):
+                g.edge[i][j]['sigma_ij_by_tau'] = g.edge[i][j]['commuting_rate'] / self.tau
+
+        # Precompute effective population for every node
+        for j in self.nodes_iter():
+            local_pop = self.node[j]['pop'] / (1 + self.node[j]['sigma_by_tau'])
+            other_pop = sum([self.node[i]['pop'] * (self.edge[i][j]['sigma_prop_by_tau'] /
+                                                    (1 + self.node[i]['sigma_by_tau'])
+                                                   )
+                             for i in self.predecessors(j)])
+            self.node[j]['effective_population'] = local_pop + other_pop
+
+        # Initialize compartments
+        for j in self.nodes_iter():
+            self.node[j]['compartments'] = Counter(
+                                           {'S': self.node[j]['pop'],
+                                            'E': 0,
+                                            'I': 0,
+                                            'Ŗ': 0
                                             })
             # Store state at beginning.
-            self.node[i]['history'] = [deepcopy(self.node[i]['compartments'])]
-            self.node[i]['exit_rate'] = self.get_exit_rate(i)
+            self.node[j]['history'] = [deepcopy(self.node[j]['compartments'])]
+            self.node[j]['exit_rate'] = self.get_exit_rate(j)
 
     def compute_long_distance_travels(self):
         """
