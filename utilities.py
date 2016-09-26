@@ -13,214 +13,6 @@ from datetime import date, datetime
 from collections import OrderedDict
 
 
-# TODO: convert result file to CSV file with following row structure:
-# node_name, timestep, susceptibles, latents, infectious_a, infectious_nt, infectious_t, recovered
-
-def get_global_compartment_values_by_timestep(results_filepath):
-    """
-    From a GeoJSON results file, get total susceptible, infected, latent and recovered
-    for each timestep.
-    """
-
-    with open(results_filepath) as f:
-        raw_contents = f.read()
-        json_str = re.sub(r'\w+ = ', '',raw_contents)
-        data = json.loads(json_str)
-        date_comps = {}
-        for obj in data:
-            times = obj['properties']['times']
-            compartments = obj['properties']['compartments']
-            for t in times:
-                date_obj = datetime.strptime(t, '%Y-%m-%d')
-                if date_obj not in date_comps.keys():
-                    date_comps[date_obj] = {
-                                             "infectious_t": 0,
-                                             "infectious_a": 0,
-                                             "recovered": 0,
-                                             "infectious_nt": 0,
-                                             "latent": 0,
-                                             "susceptible": 0
-                                           }
-                for c in date_comps[date_obj].keys():
-                    date_comps[date_obj][c] += compartments[c]
-
-        s = sorted(date_comps.items())
-        timesteps = range(1, len(s)+1)
-        sus = [x[1]['susceptible'] for x in s]
-        lat = [x[1]['latent'] for x in s]
-        inf = [x[1]['infectious_a'] + x[1]['infectious_t'] + x[1]['infectious_nt'] for x in s]
-        rec = [x[1]['recovered'] for x in s]
-
-        outbreak_end = rec.index(max(rec))
-        for x in [timesteps, sus, lat, inf, rec]:
-            x = x[:outbreak_end+1]
-
-        return {'sus': sus, 'lat': lat, 'inf': inf, 'rec': rec, 'timesteps': timesteps}
-
-
-def get_csv_data_from_results_global(results_filepath, output_csv_filepath):
-    """
-    Takes a GeoJSON result file and outputs a CSV file with following row structure:
-    timestep, susceptibles, latents, infectious, recovered
-    """
-    data = get_global_compartment_values_by_timestep(results_filepath)
-    with open(output_csv_filepath, 'w') as f:
-        writer = csv.writer(f)
-        writer.writerow(['timestep', 'susceptible', 'latent', 'infectious', 'recovered'])
-        for i in range(len(data['timesteps'])):
-            writer.writerow([data['timesteps'][i],
-                             data['sus'][i],
-                             data['lat'][i],
-                             data['inf'][i],
-                             data['rec'][i]]
-                            )
-
-
-def get_csv_data_from_results_by_node(results_filepath, output_csv_filepath):
-    """
-    Takes a GeoJSON result file and outputs a CSV file with following row structure:
-    node_name, timestep, susceptibles, latents, infectious, recovered
-    """
-
-    with open(results_filepath) as f:
-        raw_contents = f.read()
-        json_str = re.sub(r'\w+ = ', '',raw_contents)
-        data = json.loads(json_str)
-        nodes_dict = {}
-        for obj in data:
-            name = int(obj['properties']['name'])
-            times = obj['properties']['times']
-            compartments = obj['properties']['compartments']
-            if name not in nodes_dict.keys():
-                nodes_dict[name] = {}
-            for t in times:
-                date_obj = datetime.strptime(t, '%Y-%m-%d')
-                nodes_dict[name][date_obj] = compartments
-        
-        one_key = ''
-        for key in nodes_dict.keys():
-            nodes_dict[key] = OrderedDict(sorted(nodes_dict[key].items()))
-            one_key = key
-
-        nodes_dict = OrderedDict(sorted(nodes_dict.items()))
-
-        timesteps = range(1, len(nodes_dict[one_key])+1)
-        
-    with open(output_csv_filepath, 'w') as f:
-        writer = csv.writer(f)
-        writer.writerow(['node_name', 'timestep', 'susceptible', 'latent', 'infectious', 'recovered'])
-        for name in nodes_dict.keys():
-            timestep = 1
-            for date in nodes_dict[name].keys():
-                row = [name, timestep,
-                       nodes_dict[name][date]['susceptible'],
-                       nodes_dict[name][date]['latent'],
-                       (nodes_dict[name][date]['infectious_a'] +
-                        nodes_dict[name][date]['infectious_t'] +
-                        nodes_dict[name][date]['infectious_nt']),
-                       nodes_dict[name][date]['recovered']]
-                writer.writerow(row)
-                timestep += 1
-
-
-def plot_epidemic_curve_from_results(results_filepath, plot_output_filepath):
-    """
-    Takes a GeoJSON result file and plot the global epidemic curve from it.
-    """
-    
-    comps = get_global_compartment_values_by_timestep(results_filepath)
-
-    custom_style = pygal.style.DarkStyle
-    custom_style.colors = ["#feed6c", "#bf4646", "#56c2d6", "#516083"]
-    line_chart = pygal.Line(dots_size=1,
-                            show_dots=False,
-                            show_y_guides=False,
-                            legend_at_bottom_columns=2,
-                            x_labels_major_every=5,
-                            x_label_rotation=270,
-                            show_minor_x_labels=False,
-                            truncate_label=-1,
-                            margin_bottom=50,
-                            style=custom_style)
-
-    line_chart.title = 'Simulation results'
-    line_chart.x_labels = dates
-    line_chart.add('susceptible', comps['sus'])
-    line_chart.add('latent', comps['lat'])
-    line_chart.add('infectious', comps['inf'])
-    line_chart.add('recovered', comps['rec'])
-                                   
-    line_chart.render_in_browser()
-    line_chart.render_to_file(plot_output_filepath)
-
-
-def graphml_to_geojson(graphml_input_filepath, geojson_output_filepath):
-    """
-    Takes a graphml file as input and writes a correctly formatted geojson
-    file.
-    """
-
-    def geojson_builder(node):
-        """
-        Takes a node from the graph as input and returns the data in valid
-        GeojSON format.
-        """
-        return {
-                'type': 'Feature',
-                'properties': {
-                                'name': node['name'],
-                                'population': node['pop']
-                              },
-                'geometry': {
-                                'type': 'Point',
-                                'coordinates': [node['lat'], node['lon']]
-                            }
-                }
-
-    G = nx.read_graphml(graphml_input_filepath)
-
-    geojson_list = [geojson_builder(G.node[x]) for x in G.nodes_iter()]
-
-    file_content = 'nodes = ' + json.dumps(geojson_list)
-
-    with open(geojson_output_filepath, 'w') as f:
-        f.write(file_content)
-
-
-def prune_edges_with_min_cr(input_filepath, output_filepath, min_cr):
-    """
-    Removes from graph the edges that have a commuting rate under min_cr.
-    """
-    print('loading graph')
-    graph = nx.read_graphml(input_filepath)
-    print('Identifying bad edges')
-    bad_edges = [x for x in graph.edges_iter(data=True)
-                 if x[2]['commuting_rate'] < min_cr]
-
-    print('removing bad edges')
-    graph.remove_edges_from(bad_edges)
-    print('writing results to disk')
-    nx.write_graphml(graph, output_filepath)
-
-
-def format_graph(input_graph_filepath, output_graph_filepath):
-    """
-    This is what I used to format the rwa_net_pruned.graphml into what pygleam
-    expects.
-    """
-    g = nx.read_graphml(input_graph_filepath)
-    for n in g.nodes():
-        g.node[n] = {'compartments': {'susceptible': 0,
-                                      'latent': 0,
-                                      'infectious_a': 0,
-                                      'infectious_t': 0,
-                                      'infectious_nt': 0,
-                                      'recovered': 0},
-                     'coordinates': (g.node[n]['lat'], g.node[n]['lon']),
-                     'name': g.node[n]['name']}
-    nx.write_gpickle(g, output_graph_filepath)
-
-
 def compute_commuting_flows(input_file, output_file):
     """
     Commuter flow estimation done using the radiation model of traffic flow.
@@ -259,6 +51,24 @@ def compute_commuting_flows(input_file, output_file):
                                              ) * commuter_percentage
     print('\nwriting to file')
     nx.write_graphml(g, output_file)
+
+
+def format_graph(input_graph_filepath, output_graph_filepath):
+    """
+    This is what I used to format the rwa_net_pruned.graphml into what pygleam
+    expects.
+    """
+    g = nx.read_graphml(input_graph_filepath)
+    for n in g.nodes():
+        g.node[n] = {'compartments': {'susceptible': 0,
+                                      'latent': 0,
+                                      'infectious_a': 0,
+                                      'infectious_t': 0,
+                                      'infectious_nt': 0,
+                                      'recovered': 0},
+                     'coordinates': (g.node[n]['lat'], g.node[n]['lon']),
+                     'name': g.node[n]['name']}
+    nx.write_gpickle(g, output_graph_filepath)
 
 
 def generate_geojson_base_nodes(input_file, output_file):
@@ -324,6 +134,121 @@ def generate_geojson_commuting_edges(input_file, output_file, min_commuting_rate
         f.write(output_str)
 
 
+def get_csv_data_from_results_by_node(results_filepath, output_csv_filepath):
+    """
+    Takes a GeoJSON result file and outputs a CSV file with following row structure:
+    node_name, timestep, susceptibles, latents, infectious, recovered
+    """
+
+    with open(results_filepath) as f:
+        raw_contents = f.read()
+        json_str = re.sub(r'\w+ = ', '',raw_contents)
+        data = json.loads(json_str)
+        nodes_dict = {}
+        for obj in data:
+            name = int(obj['properties']['name'])
+            times = obj['properties']['times']
+            compartments = obj['properties']['compartments']
+            if name not in nodes_dict.keys():
+                nodes_dict[name] = {}
+            for t in times:
+                date_obj = datetime.strptime(t, '%Y-%m-%d')
+                nodes_dict[name][date_obj] = compartments
+        
+        one_key = ''
+        for key in nodes_dict.keys():
+            nodes_dict[key] = OrderedDict(sorted(nodes_dict[key].items()))
+            one_key = key
+
+        nodes_dict = OrderedDict(sorted(nodes_dict.items()))
+
+        timesteps = range(1, len(nodes_dict[one_key])+1)
+        
+    with open(output_csv_filepath, 'w') as f:
+        writer = csv.writer(f)
+        writer.writerow(['node_name', 'timestep', 'susceptible',
+                         'latent', 'infectious', 'recovered'])
+        for name in nodes_dict.keys():
+            timestep = 1
+            for date in nodes_dict[name].keys():
+                row = [name, timestep,
+                       nodes_dict[name][date]['susceptible'],
+                       nodes_dict[name][date]['latent'],
+                       (nodes_dict[name][date]['infectious_a'] +
+                        nodes_dict[name][date]['infectious_t'] +
+                        nodes_dict[name][date]['infectious_nt']),
+                       nodes_dict[name][date]['recovered']]
+                writer.writerow(row)
+                timestep += 1
+
+
+def get_csv_data_from_results_global(results_filepath, output_csv_filepath):
+    """
+    Takes a GeoJSON result file and outputs a CSV file with following row structure:
+    timestep, susceptibles, latents, infectious, recovered
+    """
+    data = get_global_compartment_values_by_timestep(results_filepath)
+    with open(output_csv_filepath, 'w') as f:
+        writer = csv.writer(f)
+        writer.writerow(['timestep', 'susceptible', 'latent', 'infectious', 'recovered'])
+        for i in range(len(data['timesteps'])):
+            writer.writerow([data['timesteps'][i],
+                             data['sus'][i],
+                             data['lat'][i],
+                             data['inf'][i],
+                             data['rec'][i]]
+                            )
+
+
+# TODO: convert result file to CSV file with following row structure:
+# node_name, timestep, susceptibles, latents, infectious_a, infectious_nt, infectious_t, recovered
+
+def get_global_compartment_values_by_timestep(results_filepath):
+    """
+    From a GeoJSON results file, get total susceptible, infected, latent and recovered
+    for each timestep.
+    """
+
+    with open(results_filepath) as f:
+        raw_contents = f.read()
+        json_str = re.sub(r'\w+ = ', '',raw_contents)
+        data = json.loads(json_str)
+        date_comps = {}
+        for obj in data:
+            times = obj['properties']['times']
+            compartments = obj['properties']['compartments']
+            for t in times:
+                date_obj = datetime.strptime(t, '%Y-%m-%d')
+                if date_obj not in date_comps.keys():
+                    date_comps[date_obj] = {
+                                             "infectious_t": 0,
+                                             "infectious_a": 0,
+                                             "recovered": 0,
+                                             "infectious_nt": 0,
+                                             "latent": 0,
+                                             "susceptible": 0
+                                           }
+                for c in date_comps[date_obj].keys():
+                    date_comps[date_obj][c] += compartments[c]
+
+        s = sorted(date_comps.items())
+        timesteps = range(1, len(s)+1)
+        sus = [x[1]['susceptible'] for x in s]
+        lat = [x[1]['latent'] for x in s]
+        inf = [x[1]['infectious_a'] + x[1]['infectious_t'] + x[1]['infectious_nt']
+               for x in s]
+        rec = [x[1]['recovered'] for x in s]
+
+        outbreak_end = rec.index(max(rec))
+        for x in [timesteps, sus, lat, inf, rec]:
+            x = x[:outbreak_end+1]
+
+        return {'sus': sus, 'lat': lat, 'inf': inf, 'rec': rec, 'timesteps': timesteps}
+
+
+
+
+
 def get_recovered_counts_from_results(input_folder):
     """
     Retrieve recovered counts at last time steps from many simulations,
@@ -346,6 +271,70 @@ def get_recovered_counts_from_results(input_folder):
     print(sus_counts)
 
 
+def graphml_to_geojson(graphml_input_filepath, geojson_output_filepath):
+    """
+    Takes a graphml file as input and writes a correctly formatted geojson
+    file.
+    """
+
+    def geojson_builder(node):
+        """
+        Takes a node from the graph as input and returns the data in valid
+        GeojSON format.
+        """
+        return {
+                'type': 'Feature',
+                'properties': {
+                                'name': node['name'],
+                                'population': node['pop']
+                              },
+                'geometry': {
+                                'type': 'Point',
+                                'coordinates': [node['lat'], node['lon']]
+                            }
+                }
+
+    G = nx.read_graphml(graphml_input_filepath)
+
+    geojson_list = [geojson_builder(G.node[x]) for x in G.nodes_iter()]
+
+    file_content = 'nodes = ' + json.dumps(geojson_list)
+
+    with open(geojson_output_filepath, 'w') as f:
+        f.write(file_content)
+
+
+def plot_epidemic_curve_from_results(results_filepath, plot_output_filepath):
+    """
+    Takes a GeoJSON result file and plot the global epidemic curve from it.
+    """
+    
+    comps = get_global_compartment_values_by_timestep(results_filepath)
+
+    custom_style = pygal.style.DarkStyle
+    custom_style.colors = ["#feed6c", "#bf4646", "#56c2d6", "#516083"]
+    line_chart = pygal.Line(dots_size=1,
+                            show_dots=False,
+                            show_y_guides=False,
+                            legend_at_bottom_columns=2,
+                            x_labels_major_every=5,
+                            x_label_rotation=270,
+                            show_minor_x_labels=False,
+                            truncate_label=-1,
+                            margin_bottom=50,
+                            style=custom_style)
+
+    line_chart.title = 'Simulation results'
+    line_chart.x_labels = dates
+    line_chart.add('susceptible', comps['sus'])
+    line_chart.add('latent', comps['lat'])
+    line_chart.add('infectious', comps['inf'])
+    line_chart.add('recovered', comps['rec'])
+                                   
+    line_chart.render_in_browser()
+    line_chart.render_to_file(plot_output_filepath)
+
+
 def plot_histogram(input_file):
     style.use('dark_background')
     with open(input_file) as f:
@@ -354,7 +343,8 @@ def plot_histogram(input_file):
     minimum, maximum = min(counts), max(counts)
 
     fig, ax = pl.subplots(1,1, tight_layout=True)
-    counts, bins, patches = ax.hist(counts, bins = 10 ** np.linspace(np.log10(minimum), np.log10(maximum), 70),
+    counts, bins, patches = ax.hist(counts, bins=10 ** np.linspace(np.log10(minimum),
+                                                                   np.log10(maximum), 70),
                                     facecolor='green',
                                     edgecolor='black')
 
@@ -369,6 +359,22 @@ def plot_histogram(input_file):
     ax.set_ylim(0, 40)
 
     pl.savefig(input_file[-14:-6]+'.png')
+
+
+def prune_edges_with_min_cr(input_filepath, output_filepath, min_cr):
+    """
+    Removes from graph the edges that have a commuting rate under min_cr.
+    """
+    print('loading graph')
+    graph = nx.read_graphml(input_filepath)
+    print('Identifying bad edges')
+    bad_edges = [x for x in graph.edges_iter(data=True)
+                 if x[2]['commuting_rate'] < min_cr]
+
+    print('removing bad edges')
+    graph.remove_edges_from(bad_edges)
+    print('writing results to disk')
+    nx.write_graphml(graph, output_filepath)
 
 
 if __name__ == '__main__':
