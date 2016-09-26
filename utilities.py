@@ -53,6 +53,41 @@ def compute_commuting_flows(input_file, output_file):
     nx.write_graphml(g, output_file)
 
 
+def compute_effective_population(input_file, output_file):
+    """
+    For subpopulation node of a graph, compute effective total population,
+    taking into account the commuting rates between neighboring subpopulations.
+    """
+
+    g = nx.read_graphml(input_file)
+
+    for node_id in g.nodes_iter(data=True):
+        local_pop = g.node[node_id]['pop'] / (1 + g.node[node_id]['sigma_by_tau'])
+        other_pop = sum([g.node[neighbor]['pop'] *
+                           (g.edge[neighbor][node_id]['sigma_prop_by_tau'] /
+                            (1 + g.node[neighbor]['sigma_by_tau'])
+                           )
+                         for neighbor in g.predecessors(node_id)])
+        g.node[node_id]['effective_population'] = local_pop + other_pop
+
+    nx.write_graphml(g, output_file)
+
+
+def compute_sigmas(input_file, output_file, tau):
+    """
+    Add sigma_by_tau and sigma_prop_by_tau attributes to vertices of a graph.
+    """
+    g = nx.read_graphml(input_file)
+
+    for source in g.nodes_iter():
+        sigma_by_tau = sum([g.edge[source][dest]['commuting_rate']
+                            for dest in g.successors(source)]) / tau
+        for dest in g.successors(source):
+            g.edge[dest]['sigma_prop_by_tau'] = g.edge[source][dest]['commuting_rate'] / tau
+
+    nx.write_graphml(g, output_file)
+
+
 def format_graph(input_graph_filepath, output_graph_filepath):
     """
     This is what I used to format the rwa_net_pruned.graphml into what pygleam
@@ -244,9 +279,6 @@ def get_global_compartment_values_by_timestep(results_filepath):
             x = x[:outbreak_end+1]
 
         return {'sus': sus, 'lat': lat, 'inf': inf, 'rec': rec, 'timesteps': timesteps}
-
-
-
 
 
 def get_recovered_counts_from_results(input_folder):
