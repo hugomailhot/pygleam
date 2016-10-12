@@ -22,6 +22,7 @@ import cProfile
 import pickle
 from pprint import pprint
 
+
 class Model(nx.DiGraph):
     """
     Uses nx.DiGraph to implement the network structure, and extends it with methods
@@ -61,11 +62,12 @@ class Model(nx.DiGraph):
 
         super(Model, self).__init__(subpop_network)
 
-        self.p_exit_latent = params['p_exit_latent']
-        self.p_recovery = params['p_recovery']
-        self.tau = params['commuting_return_rate']
+        self.p_exit_latent = 1 / params['latent_period']
+        self.p_exit_inf = params['infectous_period']
+        self.tau = params['tau']
         self.starting_date = params['starting_date']
         self.r0 = params['r0']
+        self.beta = params['r0'] / params['infectious_period']
 
         # Round up population values
         for i in self.nodes_iter():
@@ -74,21 +76,26 @@ class Model(nx.DiGraph):
         # Precompute sigma_by_tau and sigma_ij_by_tau values
         # sigma for a given node stands for total outgoing commuting rate
         # sigma_ij stands for commuting rate of node i towards node j
-        for i in g.nodes_iter():
-            sigma_by_tau = sum([g.edge[i][j]['cr'] 
-                                for j in g.successors(source)]) / self.tau
-            g.node[i]['sigma_by_tau'] = sigma_by_tau
-            for j in g.successors(source):
-                g.edge[i][j]['sigma_ij_by_tau'] = g.edge[i][j]['commuting_rate'] / self.tau
+        for i in self.nodes_iter():
+            sigma_by_tau = sum([self.edge[i][j]['cr'] 
+                                for j in self.successors(source)]) / self.tau
+            self.node[i]['sigma_by_tau'] = sigma_by_tau
+            for j in self.successors(source):
+                self.edge[i][j]['sigma_ij_by_tau'] = self.edge[i][j]['commuting_rate'] / self.tau
 
         # Precompute effective population for every node
         for j in self.nodes_iter():
             local_pop = self.node[j]['pop'] / (1 + self.node[j]['sigma_by_tau'])
-            other_pop = sum([self.node[i]['pop'] * (self.edge[i][j]['sigma_prop_by_tau'] /
+            other_pop = sum([self.node[i]['pop'] * (self.edge[i][j]['sigma_ij_by_tau'] /
                                                     (1 + self.node[i]['sigma_by_tau'])
                                                    )
                              for i in self.predecessors(j)])
             self.node[j]['effective_population'] = local_pop + other_pop
+
+        # Precompute the beta coefficient divided by the effective population
+        # for every node
+        for i in self.nodes_iter():
+            self.node[i]['beta_by_n*'] = self.beta / self.node[i]['effective_population']
 
         # Initialize compartments
         for j in self.nodes_iter():
@@ -125,7 +132,8 @@ class Model(nx.DiGraph):
         """
         if self.node[node_id]['compartments']['latent'] < 1:
             return 0
-        return np.random.binomial(self.node[node_id]['compartments']['latent'], self.p_exit_latent)
+        return np.random.binomial(self.node[node_id]['compartments']['latent'],
+                                  self.p_exit_latent)
     
     def draw_new_latent_count(self, node_id):
         """
@@ -150,7 +158,8 @@ class Model(nx.DiGraph):
         """
         if self.node[node_id]['compartments']['infectious'] < 1:
             return 0
-        return np.random.binomial(self.node['node_id']['compartments']['infectious'], self.p_recovery)
+        return np.random.binomial(self.node['node_id']['compartments']['infectious'],
+                                  self.p_recovery)
 
     def effective_force_of_infection(self, node_id):
         """For given subpopulation node, computes effective for of infection,
@@ -218,8 +227,7 @@ class Model(nx.DiGraph):
         """
         Runs one step of the infection process on every node in the network.
         """
-        for node_id in self.nodes_iter():
-            self.update_force_of_infection(node_id)
+        self.update_effective_foi()
         for node_id in self.nodes_iter():
             new_latent = self.draw_new_latent_count(node_id)
             new_infectious = self.draw_new_infectious_counts(node_id)
@@ -247,9 +255,10 @@ class Model(nx.DiGraph):
         Raises:
             ValueError: hemisphere argument must be in ['north', 'south', None]
         """
-        # TODO: implement seasonality computation
         if hemisphere not in ['north', 'south', None]:
             raise ValueError("hemisphere argument must be in ['north', 'south', None]")
+        if hemisphere in ['north', 'south']:
+            pass  # TODO: implement this
         if hemisphere is None:
             return self.r0
 
@@ -277,8 +286,8 @@ class Model(nx.DiGraph):
         """
         return sum(node_pop.values())
 
-    def update_force_of_infection(self, node_id):
-        """For a given node, computes the force of infection, taking into two
+    def update_effective_foi(self):
+        """For a given node, computes the force of infection, taking into account two
         terms:
             1)  the number of infectious people in local node;
             2)  the number of infectious people from neighboring node that commute
@@ -286,30 +295,36 @@ class Model(nx.DiGraph):
         Args:
             node_id (int): id of the nx.DiGraph node
         """
-        node_pop = self.node[node_id]['compartments']
-        scaled_asym_pop = self.asym_downscaler * node_pop['infectious_a']
-        local_exit_rate = self.node[node_id]['exit_rate']
-        local_infectious = (node_pop['infectious_nt'] +
-                            (node_pop['infectious_t'] + scaled_asym_pop) /
-                            (1 + local_exit_rate / self.return_rate))
+        self.update_local_foi()
+        for j_idx in self_nodes_iter():
+            local_foi = self.node[j_idx]['local_foi']
+            nbs_foi = sum([self.node[i_idx]['local_foi'] *
+                           self.edge[j_idx][i_idx]['sigma_ij_by_tau']  # this is actually sigma_ji, the attribute name in this case is misleading
+                           for nb_id in self.successors(node_id)])
+            
+            self.node[node_id]['foi'] = ((local_foi + nbs_foi) /
+                                         (1 + self.node[node_id]['sigma_by_tau'])
+                                        )
 
-        neighbors_infectious = 0
-        # Only consider neighbors that have an edge inbound to local node, ie predecessors
-        for nb_id in self.predecessors(node_id):
-            nb_pop = self.node[nb_id]['compartments']
-            scaled_asym_pop = self.asym_downscaler * nb_pop['infectious_a']
-            nb_exit_rate = self.node[nb_id]['exit_rate']
-            commuting_rate = self.edge[nb_id][node_id]['commuting_rate']
-            commuting_nb_inf = ((nb_pop['infectious_t'] + scaled_asym_pop) /
-                                (1 + nb_exit_rate /self.return_rate) * 
-                                (commuting_rate / self.return_rate))
-            neighbors_infectious += commuting_nb_inf
-
-        total_infectious = local_infectious + neighbors_infectious
-
-        self.node[node_id]['foi'] = (self.rate_of_transmission() *
-                                     total_infectious / 
-                                     self.effective_population(node_id) )
+    def update_local_foi(self):
+        """
+        Updates the localFOI attribute for every node of the graph.
+        """        
+        # local_inf is the number of infectious people from local node at local node
+        # nb_inf is the number of infectious people from neighbor nodes at local node
+        for j_idx in self.nodes_iter():
+            j = self.node[j_idx]
+            local_inf = j['compartments']['I'] / (1 + j['sigma_by_tau'])
+            
+            nb_inf = 0
+            for i_idx in self.predecessors(j_idx):
+                i = self.node[i_idx]
+                s_ij_by_tau = self.edge[i_idx][j_idx]['sigma_ij_by_tau']
+                nb_inf += ((i['compartments']['I'] * s_ij_by_tau) /
+                           (1 + i['sigma_by_tau'])
+                          )
+            total_inf_at_node = local_inf + nb_inf
+            self.node[j_idx]['local_foi'] = j['beta_by_n*'] * (total_inf_at_node)
 
     def vaccinate_node(self, node_id, p_vaccination, vaccine_effectiveness):
         """Substract from the node susceptible compartment the effective number
