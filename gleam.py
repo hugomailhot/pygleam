@@ -227,10 +227,10 @@ class Model(nx.DiGraph):
            
             compartments = self.node[node_id]['compartments']
 
-            compartments['susceptible'] -= new_latent
-            compartments['latent'] += new_latent - new_infectious
-            compartments['infectious'] += new_infectious - new_recovered
-            compartments['recovered'] += new_recovered
+            compartments['S'] -= new_latent
+            compartments['E'] += new_latent - new_infectious
+            compartments['I'] += new_infectious - new_recovered
+            compartments['R'] += new_recovered
 
             self.node[node_id]['history'].append(Counter(compartments))
 
@@ -263,8 +263,8 @@ class Model(nx.DiGraph):
             seeds (int): Number of people to be seeded. 1 by default.
             inf_type (str): Specifies the type of infectious to be seeded.
         """
-        self.node[node_id]['compartments']['susceptible'] -= seeds
-        self.node[node_id]['compartments']['infectious'] += seeds
+        self.node[node_id]['compartments']['S'] -= seeds
+        self.node[node_id]['compartments']['I'] += seeds
 
     def total_pop(self, node_pop):
         """Returns the total population in a given node population.
@@ -320,9 +320,9 @@ class Model(nx.DiGraph):
             vaccine_effectiveness (float): probability that the vaccine actually works
         """
         p_effective_immunization = p_vaccination * vaccine_effectiveness
-        immunized = self.node[node_id]['compartments']['susceptible'] * p_effective_immunization
-        self.node[node_id]['compartments']['susceptible'] -= immunized
-        self.node[node_id]['compartments']['recovered'] += immunized
+        immunized = self.node[node_id]['compartments']['S'] * p_effective_immunization
+        self.node[node_id]['compartments']['S'] -= immunized
+        self.node[node_id]['compartments']['R'] += immunized
 
     def run_n_simulations(self, n, max_timesteps=200):
         """Using the same starting conditons, will run the infection process
@@ -334,16 +334,13 @@ class Model(nx.DiGraph):
         """
         def there_is_infected_nodes(model):
             return any(any(model.node[node_id]['compartments'][comp] != 0
-                           for comp in ['latent', 'infectious_t',
-                                       'infectious_a', 'infectious_nt'])
+                           for comp in ['E', 'I'])
                        for node_id in model.nodes_iter())
         self.fresh_copy = deepcopy(self)
-        new_compartment = {'susceptible': 0,
-                           'latent': 0,
-                           'infectious_a': 0,
-                           'infectious_t': 0,
-                           'infectious_nt': 0,
-                           'recovered': 0}
+        new_compartment = {'S': 0,
+                           'E': 0,
+                           'I': 0,
+                           'R': 0}
 
         for node_id in self.nodes_iter():
             self.node[node_id]['history'] = []
@@ -396,12 +393,10 @@ class Model(nx.DiGraph):
                             "population": node['pop'],
                             "times": [str(date)],
                             "compartments": {
-                                "susceptible": round(state['susceptible']),
-                                "latent": round(state['latent']),
-                                "infectious_t": round(state['infectious_t']),
-                                "infectious_nt": round(state['infectious_nt']),
-                                "infectious_a": round(state['infectious_a']),
-                                "recovered": round(state['recovered'])
+                                "S": round(state['S']),
+                                "E": round(state['E']),
+                                "I": round(state['I']),
+                                "R": round(state['R'])
                             }
                         }
                     }
