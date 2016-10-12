@@ -1,6 +1,7 @@
 # !/usr/bin/env python
 #  encoding: utf-8
 
+import math
 import os
 import pandas as pd
 import pygal
@@ -9,7 +10,7 @@ import json
 import re
 import csv
 import sys
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from collections import OrderedDict
 
 
@@ -336,6 +337,63 @@ def graphml_to_geojson(graphml_input_filepath, geojson_output_filepath):
         f.write(file_content)
 
 
+def json_to_geojson(input_filepath, output_filepath, original_graph_filepath):
+    """
+    Takes a json result file and converts it to the GeoJSON format expected
+    by the Leaflet.js visualization script.
+
+    The original_graph_filepath is needed to retrieve node coordinates, which
+    were not saved in the CSV file from which we get the input JSON file.
+    """
+    
+    def generate_point_object(node, state, date):
+        return {
+                    "type": "Feature",
+                    "geometry": {
+                                    "type": "Point",
+                                    "coordinates": [node['lon'], node['lat']]
+                                },
+                    "properties": {
+                                    "name": node['name'],
+                                    "population": math.ceil(node['pop']),
+                                    "times": [str(date)],
+                                    "foi": state['foi'],
+                                    "compartments": {
+                                                        "S": state['S'],
+                                                        "E": state['E'],
+                                                        "I": state['I'],
+                                                        "R": state['R']
+                                                    }
+                                  }
+                }
+
+    g = nx.read_graphml(original_graph_filepath)
+    with open(input_filepath) as f:
+        data = json.load(f)
+
+    data = data[0]
+
+    output = []
+
+    # For every node index in the data
+    for n, _ in enumerate(data[0]):
+        node_id = data[0][n]['name']
+        node = g.node['n'+node_id]
+        time = date(2016, 7, 1)
+        history = [data[i][n] for i, _ in enumerate(data)]
+        output.append(generate_point_object(node, history[0], time))
+
+        for i in range(1, len(history) - 1):
+            time += timedelta(days=1)
+            if history[i] == history[i-1]:
+                output[-1]['properties']['times'].append(str(time))
+            else:
+                output.append(generate_point_object(node, history[i], time))
+
+    output_str = 'nodes = ' + json.dumps(output)
+    with open(output_file, 'w') as f:
+        f.write(output_str)
+
 def plot_epidemic_curve_from_results(results_filepath, plot_output_filepath):
     """
     Takes a GeoJSON result file and plot the global epidemic curve from it.
@@ -414,13 +472,18 @@ if __name__ == '__main__':
     # prune_edges_with_max_distance(G, 50000)
     # nx.write_graphml(G, '/data/influenza/rwanda/rwa_net_pruned.graphml')
     
-    input_file = '/home/hugo/data/pygleam/2016-07-15_rwa-net.graphml'
-    output_file = '/home/hugo/data/pygleam/rwa-net_cr_wrong.graphml'
-    compute_commuting_flows(input_file, output_file)
+    # input_file = '/home/hugo/data/pygleam/2016-07-15_rwa-net.graphml'
+    # output_file = '/home/hugo/data/pygleam/rwa-net_cr_wrong.graphml'
+    # compute_commuting_flows(input_file, output_file)
 
-    input_file = '/home/hugo/data/pygleam/rwa-net_cr_wrong.graphml'
-    output_file = '/home/hugo/data/pygleam/rwa-net_cr_pruned_wrong.graphml'
-    prune_edges_with_min_cr(input_file, output_file, 0.001)
+    # input_file = '/home/hugo/data/pygleam/rwa-net_cr_wrong.graphml'
+    # output_file = '/home/hugo/data/pygleam/rwa-net_cr_pruned_wrong.graphml'
+    # prune_edges_with_min_cr(input_file, output_file, 0.001)
+
+    input_file = '/home/hugo/data/pygleam/2016-09-28_sim-5.json'
+    output_file = '/home/hugo/data/pygleam/test_geojson.json'
+    graph_file = '/home/hugo/data/pygleam/rwa-net_cr_pruned_corrected.graphml'
+    json_to_geojson(input_file, output_file, graph_file)
 
     # input_file = '/home/hugo/Projects/gleam/data/rwa_net.graphml'
     # output_file = '/home/hugo/Projects/gleam/data/base_nodes.jsonp'
